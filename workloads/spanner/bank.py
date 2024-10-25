@@ -1,8 +1,11 @@
-import psycopg
+from google.cloud.spanner_v1.database import Database
+from google.cloud.spanner_v1.transaction import Transaction
+from google.cloud.spanner_v1 import param_types
 import random
 import time
 from uuid import uuid4
 from collections import deque
+from base64 import encodebytes
 
 
 class Bank:
@@ -15,7 +18,7 @@ class Bank:
         self.read_pct: float = float(args.get("read_pct", 0) / 100)
 
         # initiate deque with 1 random UUID so a read won't fail
-        self.order_tuples = deque([(0, uuid4())], maxlen=10000)
+        self.order_tuples = deque([(0, encodebytes(uuid4().bytes))], maxlen=10000)
 
         # keep track of the current account number and id
         self.account_number = 0
@@ -37,12 +40,14 @@ class Bank:
     # the setup() function is executed only once
     # when a new executing thread is started.
     # Also, the function is a vector to receive the excuting threads's unique id and the total thread count
-    def setup(self, conn: psycopg.Connection, id: int, total_thread_count: int):
-        with conn.cursor() as cur:
+    def setup(self, spanner_db: Database, id: int, total_thread_count: int):
+        with spanner_db.snapshot() as snapshot:
             print(
                 f"My thread ID is {id}. The total count of threads is {total_thread_count}"
             )
-            print(cur.execute(f"select version()").fetchone()[0])
+            print(
+                f"Hello from Google Spanner. It's {snapshot.execute_sql('select current_timestamp()').one()[0]}"
+            )
 
     # the loop() function returns a list of functions
     # that dbworkload will execute, sequentially.
@@ -56,7 +61,7 @@ class Bank:
     #####################
     # Utility Functions #
     #####################
-    def __think__(self, conn: psycopg.Connection):
+    def __think__(self, spanner_db: Database):
         time.sleep(self.think_time)
 
     def random_str(self, size: int = 12):
@@ -69,69 +74,85 @@ class Bank:
 
     # Workload function stubs
 
-    def txn_read(self, conn: psycopg.Connection):
-        with conn.cursor() as cur:
-            cur.execute(
+    def txn_read(self, spanner_db: Database):
+        with spanner_db.snapshot() as snapshot:
+
+            acc_no, id = random.choice(self.order_tuples)
+
+            results = snapshot.execute_sql(
                 """
                 SELECT *
                 FROM orders
-                WHERE acc_no = %s
-                  AND id = %s
+                WHERE acc_no = @acc_no
+                  AND id = @id
                 """,
-                random.choice(self.order_tuples),
-            ).fetchall()
+                {
+                    "acc_no": acc_no,
+                    "id": id,
+                },
+            ).one_or_none()
 
-    def txn_new_order(self, conn: psycopg.Connection):
+            # print("txn_read ==> ", results)
+
+    def txn_new_order(self, spanner_db: Database):
 
         # generate a random account number to be used for
         # for the order transaction
         self.account_number = random.randint(0, 999)
 
-        with conn.cursor() as cur:
-            cur.execute(
+        def x(txn: Transaction):
+            results = txn.execute_sql(
                 """
-                INSERT INTO orders (acc_no, status, amount)
-                VALUES (%s, 'Pending', %s) RETURNING id
+                INSERT INTO orders (acc_no, id, status, amount)
+                VALUES (@acc_no, @id, 'Pending', @amt) 
+                THEN RETURN id
                 """,
-                (
-                    self.account_number,
-                    round(random.random() * 1000000, 2),
-                ),
+                {
+                    "acc_no": self.account_number,
+                    "id": encodebytes(uuid4().bytes),
+                    "amt": round(random.random() * 1000000, 2),
+                },
             )
 
             # save the id that the server generated
-            self.id = cur.fetchone()[0]
+            self.id = results.one()[0]
 
             # save the (acc_no, id) tuple to our deque list
             # for future read transactions
             self.order_tuples.append((self.account_number, self.id))
 
-    def txn_order_exec(self, conn: psycopg.Connection):
+        spanner_db.run_in_transaction(x)
 
-        # with Psycopg, this is how you start an explicit transaction
-        with conn.transaction() as tx:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT *
-                    FROM ref_data
-                    WHERE acc_no = %s
-                    """,
-                    (self.account_number,),
-                ).fetchall()
+    def txn_order_exec(self, spanner_db: Database):
 
-                # simulate microservice doing something...
-                time.sleep(0.02)
+        def x(txn: Transaction):
 
-                cur.execute(
-                    """
-                    UPDATE orders
-                    SET status = 'Complete'
-                    WHERE 
-                        (acc_no, id) = (%s, %s)
-                    """,
-                    (
-                        self.account_number,
-                        self.id,
-                    ),
-                )
+            r = txn.execute_sql(
+                """
+                SELECT *
+                FROM ref_data
+                WHERE acc_no = @acc_no
+                """,
+                {
+                    "acc_no": self.account_number,
+                },
+            ).one_or_none()
+
+            # simulate microservice doing something...
+            time.sleep(0.02)
+
+            txn.execute_sql(
+                """
+                UPDATE orders
+                SET status = 'Complete'
+                WHERE 
+                    acc_no = @acc_no
+                    and id =  @id
+                """,
+                {
+                    "acc_no": self.account_number,
+                    "id": self.id,
+                },
+            ).one_or_none()
+
+        spanner_db.run_in_transaction(x)
