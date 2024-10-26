@@ -296,3 +296,6 @@ def version_option(
     ),
 ) -> None:
     pass
+
+# this is only needed for mkdocs-click
+click_app = typer.main.get_command(app)
