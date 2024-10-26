@@ -1,0 +1,21 @@
+name: build-docs
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+      - run: pip install mkdocs mkdocs-material mkdocs-click dbworkload
+      - run: mkdocs gh-deploy --force --clean --verbose
