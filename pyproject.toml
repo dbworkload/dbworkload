@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dbworkload"
-version = "0.6.1"
+version = "0.6.2"
 description = "Workload framework"
 authors = ["Fabio Ghirardello"]
 license = "GPLv3+"
@@ -18,26 +18,26 @@ dbworkload = 'dbworkload.cli.main:app'
 
 [tool.poetry.dependencies]
 python = "^3.8"
-pandas = "^1.5.2"
-tabulate = "^0.9.0"
-numpy = "^1.23.5"
-prometheus-client = "^0.15.0"
-pyyaml = "^6.0"
-typer = {extras = ["all"], version = "^0.7.0"}
-cassandra-driver = {version = "^3.29.1", optional = true}
-mysql-connector-python = {version = "^8.4.0", optional = true}
-oracledb = {version = "^2.2.0", optional = true}
-psycopg = {version = "^3.1.19", optional = true}
-psycopg-binary = {version = "^3.1.19", optional = true}
-pymongo = {version = "^4.7.2", optional = true}
-pyodbc = {version = "^5.1.0", optional = true}
-mariadb = {version = "^1.1.10", optional = true}
-google-cloud-spanner = {version = "^3.49.1", optional = true}
-pytdigest = "^0.1.4"
-plotext = "^5.2.8"
-plotly = "^5.24.0"
-jinja2 = "^3.1.4"
-sqlparse = "^0.5.1"
+pandas = "*"
+tabulate = "*"
+numpy = "*"
+prometheus-client = "*"
+pyyaml = "*"
+typer = {extras = ["all"], version = "*"}
+cassandra-driver = {version = "*", optional = true}
+mysql-connector-python = {version = "*", optional = true}
+oracledb = {version = "*", optional = true}
+psycopg = {version = "*", optional = true}
+psycopg-binary = {version = "*", optional = true}
+pymongo = {version = "*", optional = true}
+pyodbc = {version = "*", optional = true}
+mariadb = {version = "*", optional = true}
+google-cloud-spanner = {version = "*", optional = true}
+pytdigest = "*"
+plotext = "*"
+plotly = "*"
+jinja2 = "*"
+sqlparse = "*"
 
 [tool.poetry.extras]
 all =  ["psycopg", "psycopg-binary", "mysql-connector-python", "mariadb", "oracledb", "pyodbc", "pymongo", "cassandra-driver", "google-cloud-spanner"]
