@@ -610,63 +610,31 @@ class SimpleFaker:
             separator (str): the field delimiter in the CSV file
             compression (str): the compression format (gzip, zip, None..)
         """
-        logger.debug("SimpleFaker worker created")
-        if iterations > self.csv_max_rows:
-            count = int(iterations / self.csv_max_rows)
-            rem = iterations % self.csv_max_rows
-            iterations = self.csv_max_rows
-        else:
-            count = 1
-            rem = 0
 
-        if separator == "\t":
-            suffix = ".tsv"
-        else:
-            suffix = ".csv"
-
-        if compression == "gzip":
-            suffix += ".gz"
-        elif compression == "zip":
-            suffix += ".zip"
-        elif compression == "bz2":
-            suffix += ".bz2"
-        elif compression == "xz":
-            suffix += ".xz"
-
-        for x in range(count):
-            try:
-                pd.DataFrame(
-                    [
-                        row
-                        for row in [
-                            [next(x) for x in generators] for _ in range(iterations)
-                        ]
-                    ],
-                    columns=col_names,
-                ).sort_values(by=sort_by).to_csv(
-                    basename + "_" + str(x) + suffix,
-                    quoting=csv.QUOTE_MINIMAL,
-                    sep=separator,
-                    header=False,
-                    index=False,
-                    compression=compression,
-                )
-            except csv.Error as e:
-                logger.error(e)
-                if e.args[0] == "need to escape, but no escapechar set":
-                    logger.error(
-                        f"You cannot use the selected delimiter '{separator}'. Consider using another char or the the tab key."
-                    )
-
-            logger.debug(f"Saved file '{basename + '_' + str(x) + suffix}'")
-
-        # remaining rows, if any
-        if rem > 0:
-            pd.DataFrame(
-                [row for row in [[next(x) for x in generators] for _ in range(rem)]],
-                columns=col_names,
-            ).sort_values(by=sort_by).to_csv(
-                basename + "_" + str(count) + suffix,
+        def gen_to_csv(iters: int):
+            # create individual Series and then concat them together
+            df = pd.concat(
+                [pd.Series([next(gen) for _ in range(iters)]) for gen in generators],
+                axis=1,
+                keys=col_names,
+            )
+            
+            # get a list of the colums that are not to be sorted by
+            remaining = list(set(col_names) - set(sort_by))
+            
+            # create a dataframe by concatenating:
+            # 1 - the df subset with the sort_by columns sorted by the sort_by columns
+            # 2 - the df subset with the remaining columns
+            # finally order the columns by the original col_names
+            # then save to csv
+            pd.concat(
+                [
+                    df[sort_by].sort_values(sort_by).reset_index(drop=True),
+                    df[remaining],
+                ],
+                axis=1,
+            )[col_names].to_csv(
+                basename + "_" + str(counter) + suffix,
                 quoting=csv.QUOTE_MINIMAL,
                 sep=separator,
                 header=False,
@@ -674,4 +642,37 @@ class SimpleFaker:
                 compression=compression,
             )
 
-            logger.debug(f"Saved file '{basename + '_' + str(x) + suffix}'")
+        logger.debug("SimpleFaker worker created")
+        if iterations > self.csv_max_rows:
+            count = iterations // self.csv_max_rows
+            rem = iterations % self.csv_max_rows
+            iterations = self.csv_max_rows
+        else:
+            count = 1
+            rem = 0
+
+        suffix = ".tsv" if separator == "\t" else ".csv"
+
+        if compression:
+            suffix += "." + {
+                "gzip": "gz",
+            }.get(compression, compression)
+
+        for counter in range(count):
+            try:
+                gen_to_csv(iterations)
+            except csv.Error as e:
+                logger.error(e)
+                if e.args[0] == "need to escape, but no escapechar set":
+                    logger.error(
+                        f"You cannot use the selected delimiter '{separator}'. Consider using another char or the the tab key."
+                    )
+
+            logger.debug(f"Saved file '{basename + '_' + str(counter) + suffix}'")
+
+        # remaining rows, if any
+        if rem > 0:
+            counter = count
+            gen_to_csv(rem)
+
+            logger.debug(f"Saved file '{basename + '_' + str(counter) + suffix}'")
