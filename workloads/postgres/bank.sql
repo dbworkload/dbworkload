@@ -1,15 +1,13 @@
-CREATE TABLE ref_data (
-    acc_no BIGINT PRIMARY KEY,
-    external_ref_id UUID,
-    created_time TIMESTAMPTZ,
-    acc_details VARCHAR
-);
+-- file: bank.sql
 
-CREATE TABLE orders (
-    acc_no BIGINT NOT NULL,
-    id UUID NOT NULL default gen_random_uuid(),
-    status VARCHAR NOT NULL,
-    amount DECIMAL(15, 2),
-    ts TIMESTAMPTZ default now(),
-    CONSTRAINT pk PRIMARY KEY (acc_no, id)
-);
+-- read operation, executed 50% of the time
+SELECT * FROM orders WHERE acc_no = %s AND id = %s;
+
+-- below 2 transactions constitute a complete order execution
+
+-- new_order
+INSERT INTO orders (acc_no, status, amount) VALUES (%s, 'Pending', %s) RETURNING id;
+
+-- execute order - this is an explicit transaction
+SELECT * FROM ref_data WHERE acc_no = %s;
+UPDATE orders SET status = 'Complete' WHERE (acc_no, id) = (%s, %s);

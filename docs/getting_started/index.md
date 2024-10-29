@@ -5,7 +5,7 @@ The best way to understand how `dbworkload` works is by running through a good e
 We will be using PostgreSQL Server and CockroachDB, but the same logic applies to any of the
 supported technologies.
 
-!!! Notw
+!!! Note "Not using Postgres?"
     You can find equivalent files for other DBMS's in the
     <a href="https://github.com/dbworkload/dbworkload/tree/main/workloads" target="_blank">`workloads`</a> directory.
 
@@ -18,3 +18,6 @@ In this tutorial, we will go through the following tasks:
 4. From the SQL statements, we create the `dbworload` class file, that is, our workload file.
 5. We run the workload, saving stats to a CSV file.
 6. We collect the information and plot a chart to display the results of the test run.
+
+By the end of this tutorial, you should have an understanding about how to use `dbworkload` to create your
+own workload, run your benchmark tests, and display the results.
