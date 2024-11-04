@@ -82,7 +82,6 @@ class Bank:
             ).fetchall()
 
     def txn_new_order(self, conn: psycopg.Connection):
-
         # generate a random account number to be used for
         # for the order transaction
         self.account_number = random.randint(0, 999)
@@ -107,7 +106,6 @@ class Bank:
             self.order_tuples.append((self.account_number, self.id))
 
     def txn_order_exec(self, conn: psycopg.Connection):
-
         # with Psycopg, this is how you start an explicit transaction
         with conn.transaction() as tx:
             with conn.cursor() as cur:

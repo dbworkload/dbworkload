@@ -7,6 +7,7 @@ import pandas as pd
 import uuid
 import random
 import builtins
+from .common import import_class_at_runtime
 
 logger = logging.getLogger("dbworkload")
 
@@ -584,6 +585,9 @@ class SimpleFaker:
             return [SimpleFaker.Bit(seed=s, **args) for s in seeds]
         elif obj_type == "bytes":
             return [SimpleFaker.Bytes(seed=s, **args) for s in seeds]
+        elif obj_type == "custom":
+            custom_gen = import_class_at_runtime(args.pop("path"))
+            return [custom_gen(seed=s, **args) for s in seeds]
         else:
             raise ValueError(
                 f"SimpleFaker type not implemented or recognized: '{obj_type}'"
@@ -618,10 +622,10 @@ class SimpleFaker:
                 axis=1,
                 keys=col_names,
             )
-            
+
             # get a list of the colums that are not to be sorted by
             remaining = list(set(col_names) - set(sort_by))
-            
+
             # create a dataframe by concatenating:
             # 1 - the df subset with the sort_by columns sorted by the sort_by columns
             # 2 - the df subset with the remaining columns

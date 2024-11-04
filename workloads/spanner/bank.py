@@ -76,7 +76,6 @@ class Bank:
 
     def txn_read(self, spanner_db: Database):
         with spanner_db.snapshot() as snapshot:
-
             acc_no, id = random.choice(self.order_tuples)
 
             results = snapshot.execute_sql(
@@ -95,7 +94,6 @@ class Bank:
             # print("txn_read ==> ", results)
 
     def txn_new_order(self, spanner_db: Database):
-
         # generate a random account number to be used for
         # for the order transaction
         self.account_number = random.randint(0, 999)
@@ -124,9 +122,7 @@ class Bank:
         spanner_db.run_in_transaction(x)
 
     def txn_order_exec(self, spanner_db: Database):
-
         def x(txn: Transaction):
-
             r = txn.execute_sql(
                 """
                 SELECT *
