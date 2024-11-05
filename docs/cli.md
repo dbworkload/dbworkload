@@ -1,4 +1,4 @@
-# CLI
+# CLI Reference
 
 This page provides documentation for the command line arguments and options.
 

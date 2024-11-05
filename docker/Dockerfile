@@ -1,6 +1,6 @@
 FROM python:3
 
-RUN pip install dbworkload[all] 
+RUN pip install dbworkload[postgres] 
 
 ENTRYPOINT ["dbworkload"]
 

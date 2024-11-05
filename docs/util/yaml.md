@@ -126,48 +126,121 @@
 
 Below is a table with all available generators and their arguments
 
-| Generator | Arguments              | Default        |
-|-----------|------------------------|----------------|
-| constant  | value `str`            |"simplefaker"   |
-| sequence  | start `int`            | 0              |
-| integer   | min `int`              | 1              |
-|           | max `int`              | 1,000,000,000  |
-| float     | min `int`              | 1              |
-|           | max `int`              | 1,000,000      |
-|           | round `int`            | 2              |
-| string    | min `int`              | 10             |
-|           | max `int`              | 50             |
-|           | prefix `str`           | <blank\>       |
-| json      | min `int`              | 10             |
-|           | max `int`              | 50             |
-| choice    | population `list[str]` | ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] |
-|           | weights  `list[int]`   | empty list     |
-|           | cum_weights `list[int]`| empty list     |
-| timestamp | start `str`            | "2000-01-01"   |
-|           | end `str`              | "2024-12-31"   |
-|           | format `str`           | "%Y-%m-%d %H:%M:%S.%f"|
-| date      | start `str`            | "2000-01-01"   |
-|           | end `str`              | "2024-12-31"   |
-|           | format `str`           | "%Y-%m-%d"     |
-| time      | start `str`            | "07:30:00"     |
-|           | end `str`              | "22:30:00"     |
-|           | micros `bool`          | false          |
-| uuid      |                        |                |
-| bool      |                        |                |
-| bit       | size `int`             | 10             |
-| bytes     | size `int`             | 10             |
+| Generator | Description             | Arguments              | Default        |
+|-----------|-------------------------|------------------------|----------------|
+| constant  | Returns `value` over and over             | value `str`            |"simplefaker"   |
+| sequence  | Returns an `int` increased by 1 starting from `start` | start `int`            | 0              |
+| integer   | Returns an `int` between `min` and `max`         | min `int`              | 1              |
+|           |                         | max `int`              | 1,000,000,000  |
+| float     | Returns a decimal between `min` and `max` with `round` precision  | min `int`              | 1              |
+|           |                         | max `int`              | 1,000,000      |
+|           |                         | round `int`            | 2              |
+| string    | Returns a `str` using chars `[A-Za-z0-9]` of length between `min` and `max` prefixed by `prefix` | min `int`              | 10             |
+|           |                         | max `int`              | 50             |
+|           |                         | prefix `str`           | <blank\>       |
+| json      | Returns a JSON string of length between `min` and `max`         | min `int`              | 10             |
+|           |                         | max `int`              | 50             |
+| choice    | Picks an item `population`. Optionally set `[cum_]weights`. See [docs](https://docs.python.org/3/library/random.html#random.choice) | population `list[str]` | ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] |
+|           |                         | weights  `list[int]`   | empty list     |
+|           |                         | cum_weights `list[int]`| empty list     |
+| timestamp | Returns a random timestamp formatted as `format` between `start` and `end`.                        | start `str`            | "2000-01-01"   |
+|           | `start` and `end` must be valid date representation                        | end `str`              | "2024-12-31"   |
+|           | [strftime quick ref](https://strftime.org/)                        | format `str`           | "%Y-%m-%d %H:%M:%S.%f"|
+| date      |                          | start `str`            | "2000-01-01"   |
+|           |                         | end `str`              | "2024-12-31"   |
+|           |                         | format `str`           | "%Y-%m-%d"     |
+| time      |                         | start `str`            | "07:30:00"     |
+|           |                         | end `str`              | "22:30:00"     |
+|           |                         | micros `bool`          | false          |
+| uuid      | Returns the string representation of a UUIDv4    |                        |                |
+| bool      | Returns either 0 or 1          |                        |                |
+| bit       | Returns a `bit` of size `size` | size `int`             | 10             |
+| bytes     | Returns `bytes` of size `size` | size `int`             | 10             |
+| custom    | Uses a python class defined in `path` | path `str` | |
+|           | See [example usage](#custom-type-generator)          | | |
 
 Furthermore, all but `sequence` take these common arguments.
 
-| Arguments              | Default        |
-| -----------------------| ---------------|
-| seed `float`           | random         |
-| null_pct `float`       | 0              |
-| array `int`            | 0              |
+| Arguments              | Description | Default        |
+| -----------------------|-------------|----------------|
+| seed `float`           | The [random generator](https://docs.python.org/3/library/random.html#random.Random) seed number | random         |
+| null_pct `float`       | The percentange of NULL values, currently defined as an empty string `""` | 0              |
+| array `int`            | Size of the ARRAY | 0              |
 
 `json` does not take `array`.
 
-`constant` does not take `seed` and `array`.
+`constant` does not take `seed` and `array` since it returns the same value.
+
+### Custom type generator
+
+With a custom generator, you can define your own logic to generate any type of random data.
+
+The custom generator is nothing more than a python class that creates a python generator,
+that is, it implements the `__next__()` function.
+
+Below example illustrate how it works.
+
+In the YAML file, you must pass `path` in the `args` section,
+with the path to your python file.
+
+Optionally, you can pass a `seed` and you can declare as many `args` as you want.
+In this example, we only declare 1 arg, `my_arg`.
+
+```yaml
+my_table:
+- count: 5
+  sort-by: []
+  columns:
+    my_custom_generator:
+      type: custom
+      args:
+        seed: 1
+        path: play/greetings.py
+        my_arg: Hello
+```
+
+The file `play/greetings.py` yields a generated value using your arbitrarily complex logic
+
+```python
+import random
+
+
+class Greetings:
+    def __init__(
+        self,
+        seed: float,
+        my_arg: str = "",
+        null_pct: float = 0,
+        array: int = 0,
+    ):
+        self.array = array
+        self.null_pct = null_pct
+        self.rng: random.Random = random.Random(seed)
+        self.my_arg = my_arg
+        self.names = ['Joe', 'Xin', 'Sue', 'Mia', 'Ram']
+
+    def __next__(self):
+        if self.null_pct and self.rng.random() < self.null_pct:
+            return ""
+        else:
+            return f"{self.my_arg} {self.rng.choice(self.names)}!"
+
+```
+
+Executing `dbworkload util csv` returns these rows
+
+```text
+Hello Ram!
+Hello Xin!
+Hello Joe!
+Hello Ram!
+Hello Mia!
+```
+
+The file name must match the class name: file `greetings.py` declares class `Greetings`.
+
+The `__init__()` function must accept `seed`, `null_pct` and `array` as arguments.
+You don't have to use them if you don't want to, but they are expected. 
 
 ## YAML Structure
 
