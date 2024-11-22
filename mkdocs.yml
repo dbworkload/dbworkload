@@ -15,10 +15,10 @@ markdown_extensions:
 
 theme:
   name: material
-  # icon:
-  #   repo: fontawesome/brands/github-alt
-  # logo: img/icon-white.svg
-  # favicon: img/favicon.png
+  icon:
+    repo: fontawesome/brands/github
+  logo: assets/dbw.jpg
+  favicon: assets/dbw.jpg
   palette:
     - media: "(prefers-color-scheme)"
       toggle:
@@ -60,6 +60,16 @@ theme:
     - search.share
     - search.suggest
     - toc.follow
+extra:
+  social:
+  - icon: fontawesome/brands/github
+    link: https://github.com/dbworkload/dbworkload
+  - icon: fontawesome/solid/comments
+    link: https://github.com/dbworkload/dbworkload/discussions
+  - icon: fontawesome/brands/docker
+    link: https://github.com/dbworkload/dbworkload/pkgs/container/dbworkload
+  - icon: fontawesome/brands/python
+    link: https://pypi.org/project/dbworkload/
 
 
 nav:

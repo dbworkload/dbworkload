@@ -1,4 +1,12 @@
+---
+hide:
+  - navigation
+  - toc
+---
+
 # dbworkload - DBMS workload utility
+
+<center>![logo](assets/dbw.jpg){ width="250" }</center>
 
 ## Overview
 
