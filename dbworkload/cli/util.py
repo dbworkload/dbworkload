@@ -134,12 +134,12 @@ def util_yaml(
 
 
 @app.command(
-    "merge",
+    "sort_merge",
     epilog=EPILOG,
     no_args_is_help=True,
-    help="Merge multiple sorted CSV files into 1+ files.",
+    help="Sort-merge multiple sorted CSV files into 1+ files.",
 )
-def util_merge(
+def util_sort_merge(
     input: Optional[Path] = typer.Option(
         ...,
         "--input",
@@ -166,8 +166,14 @@ def util_merge(
         resolve_path=True,
     ),
     csv_max_rows: int = Param.CSVMaxRows,
+    compress: bool = typer.Option(
+        True,
+        "--no-compress",
+        show_default=False,
+        help="Do not gzip output files.",
+    ),
 ):
-    dbworkload.models.util.util_merge(input, output, csv_max_rows)
+    dbworkload.models.util.util_sort_merge(input, output, csv_max_rows, compress)
 
 
 @app.command(

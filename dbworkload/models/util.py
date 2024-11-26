@@ -5,22 +5,24 @@ from jinja2 import Environment, PackageLoader
 from pathlib import PosixPath
 from plotly.subplots import make_subplots
 from pytdigest import TDigest
-import dbworkload
 import datetime as dt
+import dbworkload
 import dbworkload.utils.common
 import dbworkload.utils.simplefaker
+import gzip
 import itertools
 import logging
 import numpy as np
 import os
 import pandas as pd
-import pandas as pd
 import plotext as plt
 import plotly.graph_objects as go
 import plotly.io as pio
+import shutil
 import sqlparse
 import sys
 import yaml
+
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)
@@ -111,9 +113,13 @@ def util_yaml(input: str, output: str):
         f.write(dbworkload.utils.common.ddl_to_yaml(ddl))
 
 
-def util_merge(input_dir: str, output_dir: str, csv_max_rows: int):
+def util_sort_merge(input_dir: str, output_dir: str, csv_max_rows: int, compress: bool):
+    from operator import itemgetter
+
     class Merge:
-        def __init__(self, input_dir: str, output_dir: str, csv_max_rows: int):
+        def __init__(
+            self, input_dir: str, output_dir: str, csv_max_rows: int, compress: bool
+        ):
             # input CSV files - it assumes files are already sorted
             files = os.listdir(input_dir)
             # Filtering only the files.
@@ -123,12 +129,18 @@ def util_merge(input_dir: str, output_dir: str, csv_max_rows: int):
                 if os.path.isfile(os.path.join(input_dir, f))
             ]
 
+            self.compress = ".gz" if compress else ""
+            self.file_extension = self.CSVs[0][-3:]
+
             self.CSV_MAX_ROWS = csv_max_rows
             self.COUNTER = 0
             self.C = 0
 
+            # source holds the list of lines in each CSV file, marked by the idx number
+            # file_handlers holds a the open file handler for each CSV file, marked by the idx number
             self.source: dict[int, list] = {}
             self.file_handlers: dict[int, TextIOWrapper] = {}
+
             self.output: TextIOWrapper
             if not output_dir:
                 self.output_dir = str(input_dir) + ".merged"
@@ -160,7 +172,7 @@ def util_merge(input_dir: str, output_dir: str, csv_max_rows: int):
                     self.source[idx].append(line)
                 else:
                     # reached end of file
-                    logger.info(
+                    logger.debug(
                         f"initial_fill: CSV file '{csv}' at source index {idx} reached EOF."
                     )
                     f.close()
@@ -179,23 +191,41 @@ def util_merge(input_dir: str, output_dir: str, csv_max_rows: int):
                     self.source[idx].append(line)
                 else:
                     # reached end of file
-                    logger.info(f"index {idx} reached EOF.")
+                    logger.debug(f"index {idx} reached EOF.")
                     f.close()
                     del self.file_handlers[idx]
             except Exception as e:
                 logger.error("Excepton in replenish_queue: ", e)
 
+        def close_output(self):
+            self.output.close()
+
+            if self.compress:
+                with open(self.output.name, "rb") as f_in:
+                    with gzip.open(f"{self.output.name}{self.compress}", "wb") as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                os.remove(self.output.name)
+
+            logger.info(f"Saved {self.output_filename}{self.compress}")
+
+        def open_new_output(self):
+            self.output_filename = (
+                f"out_{str.zfill(str(self.COUNTER), 6)}.{self.file_extension}"
+            )
+            self.output = open(
+                os.path.join(self.output_dir, self.output_filename),
+                "+w",
+            )
+
         def write_to_csv(self, v: str):
+            # create a new output file if the limit is reached
             if self.C >= self.CSV_MAX_ROWS:
-                self.output.close()
+                self.close_output()
+
                 self.COUNTER += 1
                 self.C = 0
-                self.output = open(
-                    os.path.join(
-                        self.output_dir, f"out_{str.zfill(str(self.COUNTER), 3)}.csv"
-                    ),
-                    "+w",
-                )
+
+                self.open_new_output()
 
             self.output.write(v)
             self.C += 1
@@ -209,56 +239,54 @@ def util_merge(input_dir: str, output_dir: str, csv_max_rows: int):
                 self.initial_fill(csv, idx)
 
             # the source dict now has a key for every file and a list of the first values read
+            # the file_handler dict has a key for every file and a pointer to the open file handler
 
-            l = []
-            # pop the first value in each source to a list `l`
-            # `l` will have the first values of all source CSV files
+            staging = []
+            # pop the first value in each source list to list `staging`
+            # `staging` will have the first values of all source CSV files
             for k, v in self.source.items():
                 try:
-                    l.append((v.pop(0), k))
+                    staging.append((v.pop(0), k))
                 except IndexError as e:
                     pass
+            from pprint import pprint
 
             first_k = None
             first_v = None
-            self.output = open(
-                os.path.join(
-                    self.output_dir, f"out_{str.zfill(str(self.COUNTER), 3)}.csv"
-                ),
-                "+w",
-            )
+            self.open_new_output()
 
-            # sort list `l`
+            # sort list `staging`
             # pop the first value (the smallest) in `first_v`
             # make a note of the source of that value in `first_k`
             # replenish the corrisponding source
+
             while True:
                 if first_k is not None:
                     try:
                         self.replenish_source_list(first_k)
-                        l.append((self.source[first_k].pop(0), first_k))
+                        staging.append((self.source[first_k].pop(0), first_k))
 
                     except IndexError as e:
                         # the source list is empty
-                        logger.info(f"source list {first_k} is now empty")
+                        logger.debug(f"source list {first_k} is now empty")
                         first_k = None
 
-                if l:
-                    l.sort(key=lambda x: x[0])
+                if staging:
+                    staging.sort(key=itemgetter(0))
                     try:
-                        first_v, first_k = l.pop(0)
+                        first_v, first_k = staging.pop(0)
                         self.write_to_csv(first_v)
                     except IndexError as e:
-                        logger.info("Exception in main: ", e)
+                        logger.warning("Exception in main: ", e)
                         self.output.close()
                 else:
                     break
 
-            self.output.close()
+            self.close_output()
 
             logger.info("Completed")
 
-    Merge(input_dir, output_dir, csv_max_rows).run()
+    Merge(input_dir, output_dir, csv_max_rows, compress).run()
 
 
 def util_plot(input: PosixPath):
