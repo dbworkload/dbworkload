@@ -157,7 +157,7 @@ class Stats:
                 int(self.cumulative_counts[id].weight),
                 int(self.cumulative_counts[id].weight // elapsed),
                 int(td.weight),
-                int(td.weight // (endtime - window_elapsed)),
+                int(td.weight // window_elapsed),
                 round(td.mean * 1000, 2),
             ] + [round(x * 1000, 2) for x in td.inverse_cdf(self.quantiles)]
 
