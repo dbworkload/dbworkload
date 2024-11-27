@@ -13,7 +13,7 @@ You then specify the total row count, how many rows per file, and in what order,
 
 Then `dbworkload` will generate the data into CSV or TSV files, compress them if so requested.
 
-You can then optionally [merge-sort the files](merge.md).
+You can then optionally [merge-sort the files](merge_sort.md).
 
 ### Example
 

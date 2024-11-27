@@ -1,6 +1,6 @@
-# merge
+# merge_sort
 
-## Merge sort multiple sorted CSV files into 1+ files
+## Merge Sort multiple sorted CSV files into 1+ files
 
 Sorted CSV files as those created using the [csv](csv.md) function are sorted on a file by file basis, but not across the files.
 
@@ -31,10 +31,10 @@ ttt
 yyy
 ```
 
-Run the `merge` command
+Run the `merge_sort` command
 
 ```bash
-dbworkload util merge -i bank/
+dbworkload util merge_sort -i bank/
 ```
 
 You will notice a new directory has been created. Inspect the file
@@ -59,5 +59,5 @@ Rows are now correctly sorted. Use option `--csv-max-rows` to split the output i
 
 ## See also
 
-- [`dbworkload util merge`](../cli.md#dbworkload-util-merge)
+- [`dbworkload util merge_sort`](../cli.md#dbworkload-util-merge_sort)
 - <a href="https://dev.to/cockroachlabs/generate-multiple-large-sorted-csv-files-with-pseudo-random-data-1jo4" target="_blank">Blog: Generate multiple large sorted CSV files with pseudo-random data</a>
