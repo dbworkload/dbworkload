@@ -113,10 +113,10 @@ def util_yaml(input: str, output: str):
         f.write(dbworkload.utils.common.ddl_to_yaml(ddl))
 
 
-def util_sort_merge(input_dir: str, output_dir: str, csv_max_rows: int, compress: bool):
+def util_merge_sort(input_dir: str, output_dir: str, csv_max_rows: int, compress: bool):
     from operator import itemgetter
 
-    class Merge:
+    class MergeSort:
         def __init__(
             self, input_dir: str, output_dir: str, csv_max_rows: int, compress: bool
         ):
@@ -286,7 +286,7 @@ def util_sort_merge(input_dir: str, output_dir: str, csv_max_rows: int, compress
 
             logger.info("Completed")
 
-    Merge(input_dir, output_dir, csv_max_rows, compress).run()
+    MergeSort(input_dir, output_dir, csv_max_rows, compress).run()
 
 
 def util_plot(input: PosixPath):

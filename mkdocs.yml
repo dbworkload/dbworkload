@@ -75,28 +75,28 @@ extra:
 nav:
   - Home: 
     - index.md
+  - Getting Started:
+    - getting_started/index.md
     - installation.md
     - drivers.md
-    - Getting Started:
-      - getting_started/index.md
-      - getting_started/0.md
-      - getting_started/1.md
-      - getting_started/2.md
-      - getting_started/3.md
-      - getting_started/4.md
-      - getting_started/5.md
-      - getting_started/6.md
-      - getting_started/7.md
-    - how_it_works.md
-    - Utility Functions:
-        - util/index.md
-        - util/csv.md
-        - util/gen_stub.md
-        - util/html.md
-        - util/merge_csvs.md
-        - util/merge.md
-        - util/plot.md
-        - util/yaml.md
+    - getting_started/0.md
+    - getting_started/1.md
+    - getting_started/2.md
+    - getting_started/3.md
+    - getting_started/4.md
+    - getting_started/5.md
+    - getting_started/6.md
+    - getting_started/7.md
+  - how_it_works.md
+  - Utility Functions:
+      - util/index.md
+      - util/yaml.md
+      - util/csv.md
+      - util/merge_sort.md
+      - util/gen_stub.md
+      - util/html.md
+      - util/plot.md
+      - util/merge_csvs.md
   - cli.md
   - faq.md
   - about.md
