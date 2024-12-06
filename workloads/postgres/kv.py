@@ -131,8 +131,6 @@ class Kv:
                     ).fetchall()
                 )
 
-        print(self.key_pool)
-
     def loop(self):
         def get_func():
             rnd = random.random()
@@ -185,12 +183,11 @@ class Kv:
 
     def read_kv(self, conn: psycopg.Connection):
         with conn.cursor() as cur:
-            print(
-                cur.execute(
-                    f"SELECT * FROM {self.table_name} {self.aost} WHERE ({self.key_id}) = ({self.key_ph})",
-                    random.choice(self.key_pool),
-                ).fetchone()
-            )
+            cur.execute(
+                f"SELECT * FROM {self.table_name} {self.aost} WHERE ({self.key_id}) = ({self.key_ph})",
+                random.choice(self.key_pool),
+            ).fetchone()
+            
 
     def update_kv(self, conn: psycopg.Connection):
         with conn.cursor() as cur:
