@@ -5,7 +5,6 @@ import yaml
 
 class Seeder:
     def __init__(self, args: dict):
-
         self.yaml: str = args.get("yaml", None)
         self.batch_size: int = int(args.get("batch_size", 128))
 
@@ -16,7 +15,6 @@ class Seeder:
 
     def setup(self, conn: psycopg.Connection, id: int, total_thread_count: int):
         for table_name, table_details in self.load.items():
-
             for item in table_details:
                 for col, col_details in item["columns"].items():
                     # get the list of simplefaker objects with different seeds
@@ -73,7 +71,6 @@ class Seeder:
         raise ValueError("Insert job completed successfully!")
 
     def insert_batch(self, table_name: str, iterations: int, *args):
-
         placeholders = (f"({self.value_ph})," * iterations)[:-1]
 
         with self.conn.cursor() as cur:

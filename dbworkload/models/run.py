@@ -2,6 +2,9 @@
 
 from contextlib import contextmanager
 from dbworkload.cli.dep import ConnInfo
+from rich.box import Box
+from rich.console import Console
+from rich.table import Table, box
 import dbworkload.utils.common
 import logging
 import logging.handlers
@@ -12,7 +15,6 @@ import random
 import signal
 import sys
 import sys
-import tabulate
 import threading
 import time
 import traceback
@@ -32,23 +34,6 @@ FREQUENCY = 10
 
 logger = logging.getLogger("dbworkload")
 
-
-HEADERS: list = [
-    "elapsed",
-    "id",
-    "threads",
-    "tot_ops",
-    "tot_ops/s",
-    "period_ops",
-    "period_ops/s",
-    "mean(ms)",
-    "p50(ms)",
-    "p90(ms)",
-    "p95(ms)",
-    "p99(ms)",
-    "max(ms)",
-]
-
 HEADERS_CSV: list = [
     "ts",
     "elapsed",
@@ -67,19 +52,8 @@ HEADERS_CSV: list = [
     "centroids",
 ]
 
-FINAL_HEADERS: list = [
-    "elapsed",
-    "id",
-    "threads",
-    "tot_ops",
-    "tot_ops/s",
-    "mean(ms)",
-    "p50(ms)",
-    "p90(ms)",
-    "p95(ms)",
-    "p99(ms)",
-    "max(ms)",
-]
+DBW_BOX = Box("    \n" "    \n" " ─  \n" "    \n" "    \n" "    \n" "    \n" "    \n")
+DBW_BOX2 = Box("    \n" "    \n" " ─  \n" "    \n" "    \n" "    \n" "    \n" " ─  \n")
 
 
 def signal_handler(sig, frame):
@@ -181,69 +155,98 @@ def run(
 
         logger.info("Printing summary for the full test run")
 
-        # the final stat report summarizes the entire test run
-        final_stats_report = tabulate.tabulate(
-            stats.calculate_final_stats(active_connections, end_time),
-            FINAL_HEADERS,
-            tablefmt="simple_outline",
-            intfmt=",",
-            floatfmt=",.2f",
+        # runtime_details
+        table = Table(box=DBW_BOX2)
+
+        table.add_row("run_name", run_name)
+        table.add_row(
+            "start_time", time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(start_time))
         )
+        table.add_row(
+            "end_time", time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(end_time))
+        )
+        table.add_row("test_duration", str(int(end_time - start_time)))
+
+        console_runtime = Console(record=True)
+        console_runtime.print(table)
+
+        # the final stat report summarizes the entire test run
+        table = Table(
+            header_style="orange1 bold",
+            box=box.ROUNDED,
+        )
+
+        table.add_column("elapsed", justify="right")
+        table.add_column("id")
+        for c in [
+            "threads",
+            "tot_ops",
+            "tot_ops/s",
+            "mean(ms)",
+            "p50(ms)",
+            "p90(ms)",
+            "p95(ms)",
+            "p99(ms)",
+            "max(ms)",
+        ]:
+            table.add_column(c, justify="right")
+
+        for r in stats.calculate_final_stats(active_connections, end_time):
+            table.add_row(
+                f"{r[0]:,}",  # elapsed  id  threads    tot_ops    tot_ops/s
+                r[1],
+                f"{r[2]:,}",
+                f"{r[3]:,}",
+                f"{r[4]:,}",
+                f"{r[5]:.2f}",  # mean(ms)    p50(ms)    p90(ms)    p95(ms)    p99(ms)    max(ms)
+                f"{r[6]:.2f}",
+                f"{r[7]:.2f}",
+                f"{r[8]:.2f}",
+                f"{r[9]:.2f}",
+                f"{r[10]:.2f}",
+            )
+
+        console = Console(record=True)
+        console.print(table)
 
         # Print test run details
-        runtime_params = tabulate.tabulate(
-            [
-                ["workload_path", workload_path],
-                ["conn_params", conn_info.params],
-                ["conn_extras", conn_info.extras],
-                ["concurrency", concurrency],
-                ["duration", duration],
-                ["iterations", iterations],
-                ["ramp", ramp],
-                ["args", args],
-            ],
-            headers=["Parameter", "Value"],
-        )
+        table = Table(box=DBW_BOX)
 
-        runtime_details = tabulate.tabulate(
-            [
-                ["run_name", run_name],
-                [
-                    "start_time",
-                    time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(start_time)),
-                ],
-                ["end_time", time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(end_time))],
-                ["test_duration", int(end_time - start_time)],
-            ],
-        )
+        table.add_column("Parameter")
+        table.add_column("Value")
+
+        table.add_row("workload_path", str(workload_path))
+        table.add_row("conn_params", str(conn_info.params))
+        table.add_row("conn_extras", str(conn_info.extras))
+        table.add_row("concurrency", str(concurrency))
+        table.add_row("duration", str(duration))
+        table.add_row("iterations", str(iterations))
+        table.add_row("ramp", str(ramp))
+        table.add_row("args", str(args))
+
+        console_runtime_param = Console(record=True)
+        console_runtime_param.print(table)
 
         if save:
             with open(run_name + ".txt", "w") as f:
                 f.writelines(
                     [
-                        runtime_details,
+                        *[
+                            f"{x.strip()}\n"
+                            for x in console_runtime.export_text().split("\n")
+                            if x.strip()
+                        ],
                         "\n",
+                        console.export_text(),
                         "\n",
-                        final_stats_report,
-                        "\n",
-                        "\n",
-                        runtime_params,
+                        *[
+                            f"{x.strip()}\n"
+                            for x in console_runtime_param.export_text().split("\n")
+                            if x.strip()
+                        ],
                         "\n",
                     ]
                 )
-
-        print(
-            "\n",
-            runtime_details,
-            "\n",
-            "\n",
-            final_stats_report,
-            "\n",
-            "\n",
-            runtime_params,
-            "\n",
-            sep="",
-        )
 
         sys.exit(0)
 
@@ -418,6 +421,7 @@ def run(
 
         # pause briefly to prevent the loop from overheating the CPU
         time.sleep(0.1)
+
 
 def worker(
     thread_count: int,
@@ -668,15 +672,46 @@ def log_and_sleep(e: Exception):
 
 
 def print_stats(report: list):
-    print(
-        tabulate.tabulate(
-            report,
-            HEADERS,
-            intfmt=",",
-            floatfmt=",.2f",
-        ),
-        "\n",
+    table = Table(
+        header_style="orange1 bold",
+        box=DBW_BOX,
     )
+
+    table.add_column("elapsed", justify="right")
+    table.add_column("id")
+    for c in [
+        "threads",
+        "tot_ops",
+        "tot_ops/s",
+        "period_ops",
+        "period_ops/s",
+        "mean(ms)",
+        "p50(ms)",
+        "p90(ms)",
+        "p95(ms)",
+        "p99(ms)",
+        "max(ms)",
+    ]:
+        table.add_column(c, justify="right")
+
+    for r in report:
+        table.add_row(
+            f"{r[0]:,}",  # elapsed  id  threads    tot_ops    tot_ops/s    period_ops    period_ops/s
+            r[1],
+            f"{r[2]:,}",
+            f"{r[3]:,}",
+            f"{r[4]:,}",
+            f"{r[5]:,}",
+            f"{r[6]:,}",
+            f"{r[7]:.2f}",  # mean(ms)    p50(ms)    p90(ms)    p95(ms)    p99(ms)    max(ms)
+            f"{r[8]:.2f}",
+            f"{r[9]:.2f}",
+            f"{r[10]:.2f}",
+            f"{r[11]:.2f}",
+            f"{r[12]:.2f}",
+        )
+
+    Console().print(table)
 
 
 def run_transaction(conn, op, driver: str, max_retries=3):
