@@ -419,6 +419,7 @@ def run(
         # pause briefly to prevent the loop from overheating the CPU
         time.sleep(0.1)
 
+
 def worker(
     thread_count: int,
     interval: int,

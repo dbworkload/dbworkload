@@ -1,5 +1,5 @@
 import logging
-
+import time
 from importlib import metadata
 
 try:
@@ -10,10 +10,15 @@ except:
 del metadata  # optional, avoids polluting the results of dir(__package__)
 
 logger = logging.getLogger("dbworkload")
-# logger.setLevel(logging.INFO)
+
 sh = logging.StreamHandler()
 formatter = logging.Formatter(
-    "%(asctime)s [%(levelname)s] (%(processName)s %(threadName)s) %(module)s:%(lineno)d: %(message)s"
+    "%(asctime)s [%(levelname)s] (%(processName)s %(threadName)s) %(module)s:%(lineno)d: %(message)s",
 )
+
+# set the formatter to use UTC and show microseconds
+formatter.converter = time.gmtime
+formatter.default_msec_format = "%s.%06d"
+
 sh.setFormatter(formatter)
 logger.addHandler(sh)

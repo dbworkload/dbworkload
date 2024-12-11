@@ -187,7 +187,6 @@ class Kv:
                 f"SELECT * FROM {self.table_name} {self.aost} WHERE ({self.key_id}) = ({self.key_ph})",
                 random.choice(self.key_pool),
             ).fetchone()
-            
 
     def update_kv(self, conn: psycopg.Connection):
         with conn.cursor() as cur:
