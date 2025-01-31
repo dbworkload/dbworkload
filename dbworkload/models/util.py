@@ -29,8 +29,8 @@ logger.setLevel(logging.INFO)
 
 
 def util_csv(
-    input: str,
-    output: str,
+    input: PosixPath,
+    output: PosixPath,
     compression: str,
     procs: int,
     csv_max_rows: int,
@@ -54,12 +54,8 @@ def util_csv(
     if os.path.isdir(output_dir):
         os.rename(
             output_dir,
-            output_dir + "." + dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S"),
+            str(output_dir) + "." + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
         )
-
-    # if the output dir is
-    if os.path.exists(output_dir):
-        output_dir += "_dir"
 
     # create new directory
     os.mkdir(output_dir)
@@ -92,7 +88,7 @@ def util_csv(
         print()
 
 
-def util_yaml(input: str, output: str):
+def util_yaml(input: PosixPath, output: PosixPath):
     """Wrapper around util function ddl_to_yaml() for
     crafting a data gen definition YAML string from
     CREATE TABLE statements.
@@ -106,7 +102,7 @@ def util_yaml(input: str, output: str):
 
     # backup the current file as to not override
     if os.path.exists(output):
-        os.rename(output, output + "." + dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S"))
+        os.rename(output, str(output) + "." + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"))
 
     # create new file
     with open(output, "w") as f:
@@ -153,7 +149,7 @@ def util_merge_sort(input_dir: str, output_dir: str, csv_max_rows: int, compress
                     self.output_dir,
                     str(self.output_dir)
                     + "."
-                    + dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S"),
+                    + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
                 )
 
             # create new directory
