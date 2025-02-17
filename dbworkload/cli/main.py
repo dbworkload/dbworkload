@@ -17,7 +17,7 @@ import platform
 import sys
 import typer
 import yaml
-
+import pandas as pd
 
 logger = logging.getLogger("dbworkload")
 
@@ -134,6 +134,11 @@ def run(
         show_default=False,
         help="Save stats to CSV files.",
     ),
+    schedule: str = typer.Option(
+        None,
+        "--schedule",
+        help="schedule JSON string or filepath to the schedule file.",
+    ),
     log_level: LogLevel = Param.LogLevel,
 ):
     logger.setLevel(log_level.upper())
@@ -220,6 +225,8 @@ def run(
 
     args = load_args(args)
 
+    schedule = load_schedule(schedule)
+
     dbworkload.models.run.run(
         concurrency,
         workload_path,
@@ -234,6 +241,7 @@ def run(
         driver,
         quiet,
         save,
+        schedule,
         log_level.upper(),
     )
 
@@ -277,6 +285,16 @@ def load_args(args: str):
                 return args
     return {}
 
+
+def load_schedule(schedule_path: str):
+    if schedule_path:
+        if os.path.exists(schedule_path):
+            return pd.read_csv(schedule_path, header=None).values.tolist()
+        else:
+            try:
+                return json.loads(schedule_path)
+            except:
+                logger.error(f"couldn't decode {schedule_path} as JSON")
 
 def _version_callback(value: bool) -> None:
     if value:
