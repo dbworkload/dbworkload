@@ -654,6 +654,23 @@ def ddl_to_yaml(ddl: str):
             elif within_brackets > 0 and i == ",":
                 col_def += ":"
 
+        # process the content within parenthesis in the
+        # CREATE TABLE stmt char by char to distinguish
+        # the comma for separating columns vs the comma
+        # included in single quote strings such as those in DEFAULT
+        # eg: mycol STRING NULL DEFAULT 'corporate, inc'
+        within_quote = False
+        col_def_str = col_def
+        col_def = ""
+        for i in col_def_str:
+            if i == "'":
+                within_quote = not within_quote
+                continue
+            if within_quote:
+                continue
+            else:
+                col_def += i
+
         col_def = [x.strip().lower() for x in col_def.split(",")]
 
         ll = []
