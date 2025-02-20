@@ -13,7 +13,7 @@ import signal
 import sys
 import sys
 import tabulate
-import threading
+from threading import Thread
 import time
 import traceback
 
@@ -105,7 +105,7 @@ def signal_handler(sig, frame):
             logger.error("Timed out")
             sys.exit(1)
 
-    logger.debug("Sent poison pill to all threads")
+    logger.debug("Sent poison pill to all procs")
 
 
 def cycle(iterable, backwards=False):
@@ -195,7 +195,6 @@ def run(
         while True:
             try:
                 msg = to_main_q.get(block=True, timeout=2.0)
-
                 if isinstance(msg, list):
                     _s += 1
                     stats.add_tds(msg)
@@ -324,29 +323,16 @@ def run(
 
     prom = dbworkload.utils.common.Prom(prom_port)
 
-    global iterations_per_thread
-    iterations_per_thread = None
-    if iterations:
-        # ensure we don't create more threads than the total number of iterations requested.
-        # eg. we don't need 8 threads if iterations is 4: we only need 4 threads
-        concurrency = min(iterations, concurrency)
-        iterations_per_thread = iterations // concurrency
-
-        if iterations % concurrency > 0:
-            logger.warning(
-                f"You have requested {iterations} iterations on {concurrency} threads. {iterations} modulo {concurrency} = {iterations%concurrency} iterations will not be executed."
-            )
+    to_main_q = mp.Queue()
 
     global queues
     global processes
-    to_main_q = mp.Queue()
-
     processes = {}
     queues = {}
 
     for x in range(procs):
         queues[x] = mp.Queue()
-        p = mp.Process(
+        processes[x] = mp.Process(
             target=proc,
             args=(
                 to_main_q,
@@ -362,8 +348,7 @@ def run(
             ),
             daemon=True,
         )
-        p.start()
-        processes[x] = p
+        processes[x].start()
 
     # report time happens 2 seconds after the stats are received.
     # we add this buffer to make sure we get all the stats reports
@@ -374,11 +359,24 @@ def run(
     active_connections = 0
     stats_received = 0
 
-    current_cc = 0
     global current_proc
-    current_proc = -1
     global thread_id
+
+    current_proc = -1
+    current_cc = 0
     thread_id = 0
+
+    iterations_per_thread = None
+    if iterations:
+        # ensure we don't create more threads than the total number of iterations requested.
+        # eg. we don't need 8 threads if iterations is 4: we only need 4 threads
+        concurrency = min(iterations, concurrency)
+        iterations_per_thread = iterations // concurrency
+
+        if iterations % concurrency > 0:
+            logger.warning(
+                f"You have requested {iterations} iterations on {concurrency} threads. {iterations} modulo {concurrency} = {iterations%concurrency} iterations will not be executed."
+            )
 
     if schedule is None:
         schedule = [[concurrency, ramp / 60, duration / 60 if duration else duration]]
@@ -392,23 +390,21 @@ def run(
             ramp_time = dur
 
         logger.debug(
-            f"Starting schedule {i+1}/{len(schedule)}: cc = {cc}, ramp = {ramp_time}m, dur = {dur}m"
+            f"Starting schedule {i+1}/{len(schedule)}: cc = {cc}, ramp = {ramp_time}, dur = {dur}"
         )
 
         if dur:
-            end_s = time.time() + dur * 60
+            end_schedule_time = time.time() + dur * 60
         else:
-            end_s = 0
+            end_schedule_time = float("inf")
 
-        cc_change = cc - current_cc
-
-        threading.Thread(
+        Thread(
             target=ramp_up,
             daemon=True,
             args=(
                 queues,
                 ramp_time,
-                cc_change,
+                cc - current_cc,
                 procs,
                 iterations_per_thread,
                 concurrency,
@@ -418,7 +414,7 @@ def run(
         current_cc = cc
         returned_threads = 0
 
-        while time.time() < end_s or dur is None:
+        while time.time() < end_schedule_time:
             try:
                 # read from the queue for stats or completion messages
                 msg = to_main_q.get(block=False)
@@ -525,7 +521,7 @@ def proc(
 
     logger.debug(f"PROC-{id} started")
 
-    threads: list[threading.Thread] = []
+    threads: list[Thread] = []
 
     from_proc_q = mp.Queue()
 
@@ -543,7 +539,7 @@ def proc(
             elif msg == "kill_one":
                 from_proc_q.put("poison_pill")
             elif isinstance(msg, tuple):
-                t = threading.Thread(
+                t = Thread(
                     target=worker,
                     daemon=True,
                     args=(
@@ -587,13 +583,13 @@ def worker(
         # send final stats
         to_main_q.put(ws.get_tdigest_ndarray(), block=False)
 
-        logger.warning("Bye!")
+        logger.debug(f"Thread ID {id} terminated")
 
         return
 
     logger.setLevel(log_level)
 
-    logger.debug(f"Starting Thread ID {id}")
+    logger.debug(f"Thread ID {id} started")
 
     # catch exception while instantiating the workload class
     try:
