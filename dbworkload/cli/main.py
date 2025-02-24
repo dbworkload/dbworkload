@@ -15,6 +15,7 @@ import typer
 import yaml
 
 import dbworkload.cli.util
+import dbworkload.cli.zip
 import dbworkload.models.run
 import dbworkload.utils.common
 from dbworkload.cli.dep import EPILOG, ConnInfo, Param
@@ -43,6 +44,7 @@ app = typer.Typer(
 
 
 app.add_typer(dbworkload.cli.util.app, name="util")
+app.add_typer(dbworkload.cli.zip.app, name="zip")
 
 version: bool = typer.Option(True)
 

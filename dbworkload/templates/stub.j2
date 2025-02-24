@@ -1,9 +1,11 @@
 import datetime as dt
+import json
+import string
+from typing import Any
 import psycopg
 import random
 import time
 from uuid import uuid4
-
 
 class {{ model.name }}:
     def __init__(self, args: dict):
@@ -66,19 +68,74 @@ class {{ model.name }}:
     {% for x in range(model.txn_count) %}
     def txn_{{ x }}(self, conn: psycopg.Connection):
         with conn.cursor() as cur:
+            {%- set sql = model.txns[x] -%}
+            {%- set statements = sql.split(';') -%}
+            {%- set found_commit = false -%}
+            {%- set skip_begin = true -%}
+            {%- for stmt in statements -%}
+                {%- set stmt_index = loop.index0 -%}
+                {%- set stmt = stmt.strip() -%}
+                {%- if stmt and not found_commit -%}
+                    {%- if skip_begin and (stmt.upper() == 'BEGIN' or stmt.upper().startswith('BEGIN ')) -%}
+                        {%- set skip_begin = false -%}
+                    {%- elif stmt.upper() == 'COMMIT' -%}
+                        {%- set found_commit = true -%}
+                    {%- else %}
             cur.execute(
                 """
-                {% filter indent(width=16) -%}
-                {{ model.txns[x] }}
-                {%- endfilter %}
+                {{ stmt | indent(width=16) }}
                 """,
                 (
-                {%- for _ in range(model.bind_params[x]) %}
-                    # add bind parameter, 
-                {%- endfor %} 
-                ), 
+                {%- for bind_param in model.bind_params[x][stmt_index] %}
+                    generate_random_value({{bind_param}}),
+                {%- endfor %}
+                ),
             ){% if model.txn_type[x] %}.fetchall(){% endif %}
+                    {%- endif -%}
+                {%- endif -%}
+            {%- endfor %}
     {% endfor %}
+
+def generate_random_value(field_name: str, data_type: str,is_null: str, is_pk: str) -> Any:
+    """
+    Generate a random value based on the provided data type.
+    
+    Args:
+        data_type: The SQL data type.
+        
+    Returns:
+        A random value of the appropriate type.
+    """
+    if data_type.lower() in ['int', 'int8', 'integer', 'bigint', 'smallint']:
+        return random.randint(1, 1000)
+    elif data_type.lower() in ['float', 'double', 'real', 'numeric', 'decimal']:
+        return round(random.uniform(0, 1000), 2)
+    elif data_type.lower() in ['varchar', 'char', 'text', 'string']:
+        return ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+    elif data_type.lower() in ['date']:
+        days = random.randint(0, 365)
+        return (dt.datetime.now() - dt.timedelta(days=days)).strftime('%Y-%m-%d')
+    elif data_type.lower() in ['timestamp', 'timestamptz', 'datetime']:
+        days = random.randint(0, 365)
+        hours = random.randint(0, 23)
+        minutes = random.randint(0, 59)
+        seconds = random.randint(0, 59)
+        return (dt.datetime.now() - dt.timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)).strftime('%Y-%m-%d %H:%M:%S')
+    elif data_type.lower() == 'interval':
+        units = ['day', 'hour', 'minute', 'second', 'month', 'year']
+        unit = random.choice(units)
+        value = random.randint(1, 10)
+        return f"{value} {unit}"
+    elif data_type.lower() == 'boolean':
+        return random.choice([True, False])
+    elif data_type.lower() == 'uuid':
+        return str(uuid4())
+    elif data_type.lower() in ['json', 'jsonb']:
+        keys = [''.join(random.choices(string.ascii_lowercase, k=5)) for _ in range(3)]
+        values = [random.randint(1, 100) for _ in range(3)]
+        return json.dumps(dict(zip(keys, values)))
+    else:
+        return ''.join(random.choices(string.ascii_letters + string.digits, k=10))
 
 '''
 # Quick random generators reminder
