@@ -266,3 +266,52 @@ def util_gen_stub(
     ),
 ):
     dbworkload.models.util.util_gen_stub(input_file)
+
+@app.command(
+    "init",
+    epilog=EPILOG,
+    no_args_is_help=True,
+    help="Init a workload by creating the schema and loading data",
+)
+def util_init(
+        zip_dir: Optional[Path] = typer.Option(
+            ...,
+            "--zip-dir",
+            "-z",
+            help="Location of the debug zip directory",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            writable=False,
+            readable=True,
+            resolve_path=True,
+        ),
+):
+    dbworkload.models.util.init(zip_dir)
+
+@app.command(
+    "generate_workload",
+    epilog=EPILOG,
+    no_args_is_help=True,
+    help="Generate a dbworkload class stub.",
+)
+def util_generate_workload(
+        zip_dir: Optional[Path] = typer.Option(
+            ...,
+            "--zip_dir",
+            "-z",
+            help="Location of the debug zip directory",
+            exists=True,
+            dir_okay=True,
+            writable=False,
+            readable=True,
+            resolve_path=True,
+        ),
+        db_name: Optional[Path] = typer.Option(
+            ...,
+            "--db_name",
+            "-d",
+            help="Database name",
+        ),
+):
+    dbworkload.models.util.generate(zip_dir, db_name)
