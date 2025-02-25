@@ -1,8 +1,12 @@
 #!/usr/bin/python
 import csv
+import shlex
 import string
+import subprocess
 from io import TextIOWrapper
-from dbworkload.models.ddl_generator import Generate_ddls
+from urllib.parse import urlparse
+
+from dbworkload.models.ddl_generator import generate_ddls
 from jinja2 import Environment, PackageLoader
 from pathlib import PosixPath
 from plotly.subplots import make_subplots
@@ -39,6 +43,8 @@ def util_csv(
         delimiter: str,
         http_server_hostname: str,
         http_server_port: str,
+        cloud_storage_uri: str,
+        cluster_url: str,
 ):
     """Wrapper around SimpleFaker to create CSV datasets
     given an input YAML data gen definition file
@@ -74,20 +80,54 @@ def util_csv(
 
     csv_files = os.listdir(output_dir)
 
-    for table_name in load.keys():
-        print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
+    if "gs://" in cloud_storage_uri:
+        try:
+            print("Attempting to upload files from ", output_dir, " to ", cloud_storage_uri)
+            subprocess.run(
+                ['gsutil', '-m', 'cp', '-r', output_dir, cloud_storage_uri],
+                check=True
+            )
+            print(f"Successfully uploaded {output_dir} to {cloud_storage_uri}")
 
-        for s in dbworkload.utils.common.get_import_stmts(
-                [x for x in csv_files if x.startswith(table_name)],
-                table_name,
-                http_server_hostname,
-                http_server_port,
-                delimiter,
-                "",
-        ):
-            print(s, "\n")
+            try:
+                print("Attempting to IMPORT data")
+                for table_name in load.keys():
+                    for s in dbworkload.utils.common.get_import_stmts(
+                            [x for x in csv_files if x.startswith(table_name)],
+                            table_name,
+                            "",
+                            "",
+                            delimiter,
+                            "",
+                            cloud_storage_uri + "/" + str(output_dir),
+                    ):
+                        # TODO: we need to send the schema over for creation first.
+                        print("running cockroach to upload")
+                        subprocess.run(
+                            ['cockroach', 'sql', '--url', cluster_url, '-e', s],
+                            check=True
+                        )
+            except subprocess.CalledProcessError as err:
+                print(f"Error during IMPORT: {err}")
+        except subprocess.CalledProcessError as err:
+            print(f"Error during upload: {err}")
 
-        print()
+    else:
+        for table_name in load.keys():
+            print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
+
+            for s in dbworkload.utils.common.get_import_stmts(
+                    [x for x in csv_files if x.startswith(table_name)],
+                    table_name,
+                    http_server_hostname,
+                    http_server_port,
+                    delimiter,
+                    "",
+                    "",
+            ):
+                print(s, "\n")
+
+            print()
 
 
 def util_yaml(input: PosixPath, output: PosixPath):
@@ -656,8 +696,6 @@ def util_gen_stub(input_file: PosixPath):
 
     logger.info(f"Saved stub '{out}'")
 
-def init(input_file: PosixPath):
-    return
 
 def generate_workload(zip_content_location, all_schemas, db_name, output_file_location):
     """
@@ -738,6 +776,7 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
     print(f"Successfully wrote {len(grouped_keys)} workload statements to {output_path}")
     return grouped_keys
 
+
 def replace_placeholders(sql, all_schemas):
     """
     Replace placeholders in an SQL query:
@@ -754,14 +793,14 @@ def replace_placeholders(sql, all_schemas):
     if values_match:
         values_content = values_match.group(1)  # Extract content inside VALUES(...)
         fields = [f.strip() for f in values_content.split(',')]  # Split by comma and trim spaces
-        
+
         expanded_values = []
         for field in fields:
             expanded_values.append(schema.columns[field].col_type)
 
         # Generate the correct VALUES clause
         placeholders = ', '.join(expanded_values)
-        
+
         # Replace the entire VALUES(...) with corrected placeholders
         sql = re.sub(r'VALUES\s*\(.*?\)', f'VALUES ({placeholders})', sql, flags=re.IGNORECASE)
 
@@ -770,11 +809,12 @@ def replace_placeholders(sql, all_schemas):
         content = match.group(1)  # Extract inside IN(...)
         post_in = match.group(2)
 
-        return f'IN ({content.replace("__more__","%s").replace("_","%s")}){post_in}'
+        return f'IN ({content.replace("__more__", "%s").replace("_", "%s")}){post_in}'
 
     sql = re.sub(r'IN\s*\((.*)\)(\s+\w)', replace_in_clause, sql, flags=re.IGNORECASE)
 
     return sql
+
 
 def extract_table_names(statement):
     # Regular expressions to match different SQL statements
@@ -793,9 +833,31 @@ def extract_table_names(statement):
 
     return next(iter(table_names), None)
 
-def generate(input_file: PosixPath, db_name):
-    all_schemas = Generate_ddls(input_file, str(db_name), os.path.curdir)
-    generate_workload(input_file, all_schemas, str(db_name), os.path.curdir)
-    file_name = db_name.with_suffix(".workload.sql")
-    util_gen_stub(PosixPath(file_name))
+
+def generate(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
+    ddl_file_name = db_name + ".schema.sql"
+    yaml_file_name = db_name + ".yaml"
+
+    # Generate the DDL file.
+    # TODO: this function should take the ouptut_file name.
+    all_schemas = generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url)
+
+    # Generate the YAML file.
+    util_yaml(ddl_file_name, yaml_file_name)
+
+    # Generate the CSV file.
+    # TODO: We should parameterize the values we're passing in below, so that
+    #  users can set them themselves.
+    util_csv(yaml_file_name,
+             db_name,
+             "",
+             1,
+             1000000,
+             "\t",
+             "localhost",
+             26257,
+             cloud_storage_uri,
+             cluster_url)
+
+    generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir)
     return

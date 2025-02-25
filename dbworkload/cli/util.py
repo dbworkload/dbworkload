@@ -94,6 +94,9 @@ def util_csv(
         delimiter=delimiter,
         http_server_hostname=http_server_hostname,
         http_server_port=http_server_port,
+        # Cloud storage upload not currently externalized through util csv
+        cloud_storage_uri="",
+        cluster_url="",
     )
 
 
@@ -268,28 +271,6 @@ def util_gen_stub(
     dbworkload.models.util.util_gen_stub(input_file)
 
 @app.command(
-    "init",
-    epilog=EPILOG,
-    no_args_is_help=True,
-    help="Init a workload by creating the schema and loading data",
-)
-def util_init(
-        zip_dir: Optional[Path] = typer.Option(
-            ...,
-            "--zip-dir",
-            "-z",
-            help="Location of the debug zip directory",
-            exists=True,
-            file_okay=True,
-            dir_okay=False,
-            writable=False,
-            readable=True,
-            resolve_path=True,
-        ),
-):
-    dbworkload.models.util.init(zip_dir)
-
-@app.command(
     "generate_workload",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -307,11 +288,23 @@ def util_generate_workload(
             readable=True,
             resolve_path=True,
         ),
-        db_name: Optional[Path] = typer.Option(
+        db_name: Optional[str] = typer.Option(
             ...,
             "--db_name",
             "-d",
             help="Database name",
         ),
+        cloud_storage_uri: Optional[str] = typer.Option(
+            ...,
+            "--cloud_storage_uri",
+            "-c",
+            help="Google Cloud storage uri to use as temporary storage for CSV file upload",
+        ),
+        cluster_url: Optional[str] = typer.Option(
+            ...,
+            "--cluster_url",
+            "-u",
+            help="URL to database cluster (used for data upload)",
+        ),
 ):
-    dbworkload.models.util.generate(zip_dir, db_name)
+    dbworkload.models.util.generate(zip_dir, db_name, cloud_storage_uri, cluster_url)
