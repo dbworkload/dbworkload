@@ -2,6 +2,7 @@
 import csv
 import string
 from io import TextIOWrapper
+from dbworkload.models.ddl_generator import Generate_ddls
 from jinja2 import Environment, PackageLoader
 from pathlib import PosixPath
 from plotly.subplots import make_subplots
@@ -23,6 +24,7 @@ import shutil
 import sqlparse
 import sys
 import yaml
+import re
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)
@@ -657,8 +659,7 @@ def util_gen_stub(input_file: PosixPath):
 def init(input_file: PosixPath):
     return
 
-
-def generate_workload(zip_content_location, db_name, output_file_location):
+def generate_workload(zip_content_location, all_schemas, db_name, output_file_location):
     """
     Reads a TSV file named 'crdb_internal.node_statement_statistics.txt' from each numeric node directory
     under zip_content_location/nodes (starting at 1), stopping when a directory doesn't exist.
@@ -667,7 +668,7 @@ def generate_workload(zip_content_location, db_name, output_file_location):
     For each txn_fingerprint_id, it only aggregates key values from the first node that contains it;
     if the txn_id is encountered in a later node, its key values are ignored.
 
-    Finally, it writes the grouped key values to <db_name>.workload.ddl in the output_file_location.
+    Finally, it writes the grouped key values to <db_name>.workload.sql in the output_file_location.
     """
     statement_statistics_file_name = "crdb_internal.node_statement_statistics.txt"
     nodes_base_dir = os.path.join(zip_content_location, "nodes")
@@ -712,7 +713,7 @@ def generate_workload(zip_content_location, db_name, output_file_location):
                 if row[column_index["database_name"]] == db_name and \
                         "job id=" not in row[column_index["application_name"]]:
                     txn_id = row[column_index["txn_fingerprint_id"]]
-                    key_val = row[column_index["key"]]
+                    key_val = replace_placeholders(row[column_index["key"]], all_schemas)
 
                     if txn_id in grouped_keys:
                         # Only add key values from the same node where this txn_id was first encountered.
@@ -724,7 +725,7 @@ def generate_workload(zip_content_location, db_name, output_file_location):
 
         node += 1  # Move on to the next node directory.
 
-    output_path = os.path.join(output_file_location, f"{db_name}.workload.ddl")
+    output_path = os.path.join(output_file_location, f"{db_name}.workload.sql")
     with open(output_path, mode="w", encoding="utf-8") as out_file:
         # Write each txn_fingerprint_id block.
         for txn_id, data in grouped_keys.items():
@@ -737,9 +738,64 @@ def generate_workload(zip_content_location, db_name, output_file_location):
     print(f"Successfully wrote {len(grouped_keys)} workload statements to {output_path}")
     return grouped_keys
 
+def replace_placeholders(sql, all_schemas):
+    """
+    Replace placeholders in an SQL query:
+    - `_` -> `%s`
+    - `__more__` -> Expands based on the number of fields in VALUES (...) or IN (...)
+    
+    Returns the modified query.
+    """
+
+    # Match the VALUES clause in an INSERT statement
+    values_match = re.search(r'\((.*)\).*VALUES\s.*?', sql, re.IGNORECASE)
+    table_name = extract_table_names(sql)
+    schema = all_schemas[table_name]
+    if values_match:
+        values_content = values_match.group(1)  # Extract content inside VALUES(...)
+        fields = [f.strip() for f in values_content.split(',')]  # Split by comma and trim spaces
+        
+        expanded_values = []
+        for field in fields:
+            expanded_values.append(schema.columns[field].col_type)
+
+        # Generate the correct VALUES clause
+        placeholders = ', '.join(expanded_values)
+        
+        # Replace the entire VALUES(...) with corrected placeholders
+        sql = re.sub(r'VALUES\s*\(.*?\)', f'VALUES ({placeholders})', sql, flags=re.IGNORECASE)
+
+    # Match IN clauses and replace
+    def replace_in_clause(match):
+        content = match.group(1)  # Extract inside IN(...)
+        post_in = match.group(2)
+
+        return f'IN ({content.replace("__more__","%s").replace("_","%s")}){post_in}'
+
+    sql = re.sub(r'IN\s*\((.*)\)(\s+\w)', replace_in_clause, sql, flags=re.IGNORECASE)
+
+    return sql
+
+def extract_table_names(statement):
+    # Regular expressions to match different SQL statements
+    insert_pattern = re.compile(r'INSERT INTO\s+["]?(\w+)["]?', re.IGNORECASE)
+    select_pattern = re.compile(r'SELECT.*?FROM\s+["]?(\w+)["]?', re.IGNORECASE)
+    update_pattern = re.compile(r'UPDATE\s+["]?(\w+)["]?', re.IGNORECASE)
+    delete_pattern = re.compile(r'DELETE FROM\s+["]?(\w+)["]?', re.IGNORECASE)
+
+    table_names = set()
+
+    # Find all matches for each pattern
+    table_names.update(insert_pattern.findall(statement))
+    table_names.update(select_pattern.findall(statement))
+    table_names.update(update_pattern.findall(statement))
+    table_names.update(delete_pattern.findall(statement))
+
+    return next(iter(table_names), None)
 
 def generate(input_file: PosixPath, db_name):
-    generate_workload(input_file, str(db_name), os.path.curdir)
-    file_name = db_name.with_suffix(".workload.ddl")
+    all_schemas = Generate_ddls(input_file, str(db_name), os.path.curdir)
+    generate_workload(input_file, all_schemas, str(db_name), os.path.curdir)
+    file_name = db_name.with_suffix(".workload.sql")
     util_gen_stub(PosixPath(file_name))
     return

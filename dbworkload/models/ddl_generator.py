@@ -1,11 +1,8 @@
-#!/usr/bin/env on3
-
-import csv
 import os
-import sys
+import csv
 import re
 
-def generate_ddls(zip_content_location, db_name, output_file_location):
+def Generate_ddls(zip_content_location, db_name, output_file_location):
     """
     Reads a TSV file named 'crdb_internal.create_statements.txt' from zip_content_location,
     filters rows by db_name and descriptor_type='table', updates each CREATE statement to
@@ -20,9 +17,9 @@ def generate_ddls(zip_content_location, db_name, output_file_location):
     file_path = os.path.join(zip_content_location, create_statement_file_name)
 
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Could not find TSV file: {file_path}")
+        raise FileNotFoundError(f"Could not find TSV file: "+ file_path)
 
-    output_path = os.path.join(output_file_location, f"{db_name}.ddl")
+    output_path = os.path.join(output_file_location, f"{db_name}.workload.ddl")
 
     with open(file_path, mode="r", newline="", encoding="utf-8") as tsv_file:
         # Use the csv reader for tab-separated data.
@@ -109,6 +106,7 @@ def generate_ddls(zip_content_location, db_name, output_file_location):
         statements = [table_to_statement[t] for t in order_of_tables]
         count = len(statements)
 
+    all_schemas = {}
     # Write results to the output file.
     with open(output_path, mode="w", encoding="utf-8") as out_file:
         # Prepend the CREATE DATABASE statement.
@@ -117,26 +115,79 @@ def generate_ddls(zip_content_location, db_name, output_file_location):
         # Append each create statement followed by a semicolon and extra newline.
         for stmt in statements:
             out_file.write(stmt + ";\n\n")
+            schema = parse_ddl(stmt)
+            table_name = schema.table_name.split('.')[-1]
+            all_schemas[table_name]=schema
 
     print(f"Successfully wrote {count} create statements to {output_path}")
+    return all_schemas
+
+class Column:
+    def __init__(self, name, col_type, is_nullable, is_primary_key=False):
+        self.name = name
+        self.col_type = col_type
+        self.is_nullable = is_nullable
+        self.is_primary_key = is_primary_key
+
+    def __str__(self):
+        pk_flag = " (PRIMARY KEY)" if self.is_primary_key else ""
+        null_status = "NULL" if self.is_nullable else "NOT NULL"
+        return f"  - {self.name} ({self.col_type}) {null_status}{pk_flag}"
+
+class TableSchema:
+    def __init__(self, table_name):
+        self.table_name = table_name
+        self.columns = {}  # List of Column objects
+        self.primary_keys = []  # List of primary key column names
+
+    def add_column(self, column):
+        self.columns[column.name] = column
+
+    def set_primary_keys(self, pk_columns):
+        self.primary_keys = pk_columns
+        for col_name in self.columns:
+            col = self.columns[col_name]
+            if col.name in self.primary_keys:
+                col.is_primary_key = True
+
+    def __str__(self):
+        output = f"Table: {self.table_name}\nColumns:\n"
+        for col_name in self.columns:
+            output += str(self.columns[col_name]) + "\n"
+        output += f"Primary Keys: {', '.join(self.primary_keys) if self.primary_keys else 'None'}\n"
+        return output
 
 
-def main():
+def parse_ddl(ddl):
     """
-    Example usage of generate_ddls.
-    Adjust paths and db_name to match your environment:
-      python generate_ddls.py <zip_content_location> <db_name> <output_file_location>
+    Parses a CREATE TABLE statement and extracts:
+    - Table name
+    - Column names, types, and nullability constraints
+    - Primary key columns
     """
-    if len(sys.argv) < 4:
-        print("Usage: python generate_ddls.py <zip_content_location> <db_name> <output_file_location>")
-        sys.exit(1)
 
-    zip_content_location = sys.argv[1]
-    db_name = sys.argv[2]
-    output_file_location = sys.argv[3]
+    # Extract table name (with schema if present)
+    table_match = re.search(r'CREATE TABLE IF NOT EXISTS\s+([\w."]+)', ddl, re.IGNORECASE)
+    if not table_match:
+        raise ValueError("Invalid DDL: Could not find table name.")
+    
+    table_name = table_match.group(1).replace('"', '')  # Remove quotes
+    schema = TableSchema(table_name)
 
-    generate_ddls(zip_content_location, db_name, output_file_location)
+    # Extract only column definitions (ignore constraints like PRIMARY KEY, FOREIGN KEY, INDEX)
+    column_definitions = re.findall(r'^\s*"?(.*?)"?\s+([\w,()]+)\s+(NULL|NOT NULL)?', ddl, re.MULTILINE)
 
+    for col in column_definitions:
+        column_name = col[0]
+        column_type = col[1]
+        is_nullable = col[2] is None or col[2].upper() == "NULL"
+        if column_name.upper() not in ["CONSTRAINT", "UNIQUE", "PRIMARY", "FOREIGN", "INDEX", "CREATE"]:
+            schema.add_column(Column(column_name, column_type, is_nullable))
 
-if __name__ == "__main__":
-    main()
+    # Extract PRIMARY KEY constraint
+    pk_match = re.search(r'PRIMARY KEY\s*\((.*?)\)', ddl, re.IGNORECASE)
+    if pk_match:
+        pk_columns = [col.strip().split()[0] for col in pk_match.group(1).split(",")]
+        schema.set_primary_keys(pk_columns)
+
+    return schema
