@@ -1,8 +1,9 @@
 import os
 import csv
 import re
+import subprocess
 
-def Generate_ddls(zip_content_location, db_name, output_file_location, cluster_url):
+def generate_ddls(zip_content_location, db_name, output_file_location, cluster_url):
     """
     Reads a TSV file named 'crdb_internal.create_statements.txt' from zip_content_location,
     filters rows by db_name and descriptor_type='table', updates each CREATE statement to
@@ -118,6 +119,13 @@ def Generate_ddls(zip_content_location, db_name, output_file_location, cluster_u
             schema = parse_ddl(stmt)
             table_name = schema.table_name.split('.')[-1]
             all_schemas[table_name]=schema
+
+    if cluster_url:
+        print(f"Attempting to create schema on cluster")
+        subprocess.run(
+            ['cockroach', 'sql', '--url', cluster_url, '-f', output_path],
+            check=True
+        )
 
     print(f"Successfully wrote {count} create statements to {output_path}")
     return all_schemas

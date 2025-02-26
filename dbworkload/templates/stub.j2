@@ -68,18 +68,31 @@ class {{ model.name }}:
     {% for x in range(model.txn_count) %}
     def txn_{{ x }}(self, conn: psycopg.Connection):
         with conn.cursor() as cur:
+            {%- set sql = model.txns[x] -%}
+            {%- set statements = sql.split(';') -%}
+            {%- set found_commit = false -%}
+            {%- set skip_begin = true -%}
+            {%- for stmt in statements -%}
+                {%- set stmt = stmt.strip() -%}
+                {%- if stmt and not found_commit -%}
+                    {%- if skip_begin and (stmt.upper() == 'BEGIN' or stmt.upper().startswith('BEGIN ')) -%}
+                        {%- set skip_begin = false -%}
+                    {%- elif stmt.upper() == 'COMMIT' -%}
+                        {%- set found_commit = true -%}
+                    {%- else %}
             cur.execute(
                 """
-                {% filter indent(width=16) -%}
-                {{ model.txns[x] }}
-                {%- endfilter %}
+                {{ stmt | indent(width=16) }}
                 """,
                 (
                 {%- for bind_param in model.bind_params[x] %}
                     generate_random_value({{bind_param}}),
-                {%- endfor %} 
-                ), 
+                {%- endfor %}
+                ),
             ){% if model.txn_type[x] %}.fetchall(){% endif %}
+                    {%- endif -%}
+                {%- endif -%}
+            {%- endfor %}
     {% endfor %}
 
 def generate_random_value(field_name: str, data_type: str,is_null: str, is_pk: str) -> Any:

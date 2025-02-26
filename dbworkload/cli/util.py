@@ -271,12 +271,12 @@ def util_gen_stub(
     dbworkload.models.util.util_gen_stub(input_file)
 
 @app.command(
-    "generate_workload",
+    "init",
     epilog=EPILOG,
     no_args_is_help=True,
-    help="Generate a dbworkload class stub.",
+    help="Initialize a workload from a debug.zip directory (create schema, generate data, load data, setup workload)",
 )
-def util_generate_workload(
+def util_init(
         zip_dir: Optional[Path] = typer.Option(
             ...,
             "--zip_dir",
@@ -307,4 +307,4 @@ def util_generate_workload(
             help="URL to database cluster (used for data upload)",
         ),
 ):
-    dbworkload.models.util.generate(zip_dir, db_name, cloud_storage_uri, cluster_url)
+    dbworkload.models.util.init(zip_dir, db_name, cloud_storage_uri, cluster_url)

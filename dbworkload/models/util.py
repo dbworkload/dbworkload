@@ -1,12 +1,13 @@
 #!/usr/bin/python
 import csv
+import random
 import shlex
 import string
 import subprocess
 from io import TextIOWrapper
 from urllib.parse import urlparse
 
-from dbworkload.models.ddl_generator import Generate_ddls, Column
+from dbworkload.models.ddl_generator import generate_ddls, Column
 from jinja2 import Environment, PackageLoader
 from pathlib import PosixPath
 from plotly.subplots import make_subplots
@@ -679,7 +680,8 @@ def util_gen_stub(input_file: PosixPath):
     model["txn_count"] = len(transactions)
     model["name"] = input_file.name.split(".")[0].capitalize()
     model["txns"] = [
-        sqlparse.format(re.sub(r":-:\|.*?\|:-:", "%s", txn), reindent=True, keyword_case="upper") for txn in transactions
+        sqlparse.format(re.sub(r":-:\|.*?\|:-:", "%s", txn), reindent=True, keyword_case="upper") for txn in
+        transactions
     ]
 
     phs = []
@@ -787,12 +789,16 @@ def replace_placeholders(sql, all_schemas):
     Replace placeholders in an SQL query:
     - `_` -> `%s`
     - `__more__` -> Expands based on the number of fields in VALUES (...) or IN (...)
-    
+
     Returns the modified query.
     """
 
+    print("replacing placeholders in: ",sql)
     table_names = extract_table_names(sql)
+    if table_names is None:
+        return sql
     schemas = [all_schemas[table_name] for table_name in table_names]
+
     def replace_values(values_match):
         values_content = values_match.group(1)  # Extract content inside VALUES(...)
         fields = [f.strip() for f in values_content.split(',')]  # Split by comma and trim spaces
@@ -800,7 +806,7 @@ def replace_placeholders(sql, all_schemas):
         expanded_values = []
         for field in fields:
             expanded_values.append(get_field_column(schemas, field))
-    
+
         # Generate the correct VALUES clause
         placeholders = ', '.join(expanded_values)
         return f'({values_match.group(1)}){values_match.group(2)} ({placeholders}){values_match.group(4)}'
@@ -814,19 +820,22 @@ def replace_placeholders(sql, all_schemas):
     sql = extract_system_time(sql)
     return sql
 
+
 def extract_limit(sql):
-    limit_column = Column("", "INT8","")
+    limit_amount = random.randint(1, 100)
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(\s+LIMIT\s+)(_)', f' LIMIT {limit_column}', sql, flags=re.IGNORECASE)
+    return re.sub(r'(\s+LIMIT\s+)(_)', f' LIMIT {limit_amount}', sql, flags=re.IGNORECASE)
+
 
 def extract_system_time(sql):
-    system_time = Column("", "TIMESTAMPTZ","")
+    system_time = Column("", "TIMESTAMPTZ", "")
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
     return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME {system_time}', sql, flags=re.IGNORECASE)
 
+
 def extract_set_conditions(sql, schemas):
     def replace_set_clause(set_match):
-        set_clause=[]
+        set_clause = []
         set_pairs = [pair for pair in set_match.group(3).strip().split(',')]
         for set_pair in set_pairs:
             kv = [pair for pair in set_pair.split('=')]
@@ -838,73 +847,170 @@ def extract_set_conditions(sql, schemas):
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
     return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE)', replace_set_clause, sql, flags=re.IGNORECASE)
 
+
 def extract_where_conditions(sql, schemas):
     """
     Extracts and parses the WHERE clause conditions from an SQL statement,
     stopping at termination conditions like ORDER BY, GROUP BY, LIMIT.
     Returns a list of conditions as tuples (left_operand, operator, right_operand).
+    Properly handles nested parentheses in subqueries.
     """
+    import re
 
     def replace_where_clause(where_match):
         where_clause = where_match.group(2).strip()
 
+        # Handle parentheses properly by tracking nested levels
         conditions = []
-        # Split the WHERE clause by AND/OR to get individual conditions
-        condition_parts = re.split(r'\s+(AND|OR)\s+', where_clause, flags=re.IGNORECASE)
-        
-        # Iterate over the split conditions and parse each one
         i = 0
-        while i < len(condition_parts):
-            condition = condition_parts[i].strip()
-            operator = condition_parts[i + 1].strip() if i + 1 < len(condition_parts) else None
-            
-            # Split based on common SQL comparison operators
-            parts = re.split(r'\s*(=|<|>|<=|>=|!=|BETWEEN|LIKE|IN)\s*', condition, maxsplit=1)
-            
-            if len(parts) == 3:
-                left_operand, op, right_operand = parts
-                if op.upper() == "BETWEEN" and i + 4 < len(condition_parts):
-                    right_operand += " AND " + condition_parts[i + 2].strip()
-                    i += 4  # Skip the next part as it's part of the BETWEEN condition
-                else:
-                    i+=2
-                conditions.append((left_operand.strip(), op.strip(), right_operand.strip()))
-            else:
-                conditions.append((condition,))
-            
-            if operator:
-                conditions.append((operator,))
-        condition_part = ''
-        for condition in conditions:
-                if len(condition)==3:
-                    fields = [f.strip() for f in condition[0].replace('(','').replace(')','').split(',')]
-                    first_field = get_field_column(schemas, fields[0])
-                    value = condition[2]
-                    if condition[1].upper() == "IN":
-                        if value.strip().lower().startswith("(select"):
-                            without_braces = value.replace('(','').replace(')','')
-                            value = f'({extract_where_conditions(without_braces, schemas)})'
-                        else:
-                            if len(fields) == 1:
-                                col_type = first_field
-                                value = f'({col_type}, {col_type})'
-                            else:
-                                value = ', '.join(
-                                    [f'({get_field_column(schemas, field)}, {get_field_column(schemas, field)})' for field in fields])
-                    elif condition[1].upper() == "BETWEEN":
-                        value = condition[2].replace("_ - _", first_field)
-                    else:
-                        value = condition[2].replace("__more__", first_field)
-                        value = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', first_field, value)
-                    condition_part+=f'{condition[0]} {condition[1]} {value}'
-                else:
-                    condition_part+=f' {condition[0]} '
+        current_condition = ""
+        paren_level = 0
 
-            
-        return f'{where_match.group(1)} {condition_part}{where_match.group(3)}'
+        # Split into conditions while respecting parentheses nesting
+        while i < len(where_clause):
+            char = where_clause[i]
+
+            # Track parentheses nesting level
+            if char == '(':
+                paren_level += 1
+                current_condition += char
+            elif char == ')':
+                paren_level -= 1
+                current_condition += char
+            # Only split on AND/OR at the top level (paren_level == 0)
+            elif paren_level == 0 and i + 3 <= len(where_clause) and where_clause[i:i + 3].upper() == 'AND':
+                if current_condition.strip():
+                    conditions.append((current_condition.strip(),))
+                conditions.append(('AND',))
+                current_condition = ""
+                i += 2  # Skip "AND"
+            elif paren_level == 0 and i + 2 <= len(where_clause) and where_clause[i:i + 2].upper() == 'OR':
+                if current_condition.strip():
+                    conditions.append((current_condition.strip(),))
+                conditions.append(('OR',))
+                current_condition = ""
+                i += 1  # Skip "OR"
+            else:
+                current_condition += char
+
+            i += 1
+
+        # Add the last condition if there is one
+        if current_condition.strip():
+            conditions.append((current_condition.strip(),))
+
+        # Process each condition
+        processed_conditions = []
+        for condition_tuple in conditions:
+            condition = condition_tuple[0]
+
+            # Skip logical operators (already handled)
+            if condition in ('AND', 'OR'):
+                processed_conditions.append(condition)
+                continue
+
+            # Handle parenthesized conditions
+            if condition.startswith('(') and condition.endswith(')') and not _is_operator_inside(condition):
+                # Recursively process the inner condition while preserving parentheses
+                inner_condition = condition[1:-1].strip()
+                processed_conditions.append(f"({_process_single_condition(inner_condition, schemas)})")
+            else:
+                processed_conditions.append(_process_single_condition(condition, schemas))
+
+        # Join all processed conditions
+        result = ' '.join(processed_conditions)
+        return f'{where_match.group(1)} {result}{where_match.group(3)}'
+
+    def _is_operator_inside(condition):
+        """Check if there's an operator inside the parentheses at the top level."""
+        # Remove the outer parentheses
+        inner = condition[1:-1].strip()
+        paren_level = 0
+
+        for i in range(len(inner)):
+            char = inner[i]
+            if char == '(':
+                paren_level += 1
+            elif char == ')':
+                paren_level -= 1
+            # Look for operators at the top level
+            elif paren_level == 0:
+                # Check for common SQL operators
+                operators = ['=', '<', '>', '<=', '>=', '!=', ' BETWEEN ', ' LIKE ', ' IN ']
+                for op in operators:
+                    if i + len(op) <= len(inner) and inner[i:i + len(op)].upper() == op.upper():
+                        return True
+
+        return False
+
+    def _process_single_condition(condition, schemas):
+        """Process a single condition by parsing its components."""
+        # Handle special case for logical operators
+        if condition in ('AND', 'OR'):
+            return condition
+
+        # Look for SQL operators
+        operator_pattern = r'\s*(=|<|>|<=|>=|!=|BETWEEN|LIKE|IN)\s*'
+        parts = re.split(operator_pattern, condition, maxsplit=1, flags=re.IGNORECASE)
+
+        if len(parts) < 3:
+            # This might be a complex condition or doesn't match our pattern
+            return condition
+
+        left_operand, operator, right_operand = parts
+        left_operand = left_operand.strip()
+        operator = operator.strip().upper()
+        right_operand = right_operand.strip()
+
+        # Process fields
+        fields = [f.strip() for f in left_operand.replace('(', '').replace(')', '').split(',')]
+        first_field = get_field_column(schemas, fields[0]) if fields else ""
+
+        # Handle different operators
+        if operator == "IN":
+            if right_operand.strip().lower().startswith("(select"):
+                # Handle subquery: preserve the outer parentheses
+                inner_query = right_operand[1:-1] if right_operand.startswith('(') and right_operand.endswith(
+                    ')') else right_operand
+                # Process the subquery
+                processed_subquery = extract_where_conditions(inner_query, schemas)
+                # Re-wrap in parentheses
+                right_operand = f"({processed_subquery})"
+            else:
+                # Handle IN with literal values
+                if len(fields) == 1:
+                    col_type = first_field
+                    right_operand = f'({col_type}, {col_type})'
+                else:
+                    right_operand = ', '.join(
+                        [f'({get_field_column(schemas, field)}, {get_field_column(schemas, field)})' for field in
+                         fields])
+        elif operator == "BETWEEN":
+            right_operand = right_operand.replace("_ - _", first_field)
+        else:
+            right_operand = right_operand.replace("__more__", first_field)
+            right_operand = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', first_field, right_operand)
+
+        return f"{left_operand} {operator} {right_operand}"
 
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(WHERE\s+)(.+?)(\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s+RETURNING|\s*;|$)', replace_where_clause, sql, flags=re.IGNORECASE)
+    return re.sub(
+        r'(WHERE\s+)(.+?)(\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s+RETURNING|\s*;|$)',
+        replace_where_clause,
+        sql,
+        flags=re.IGNORECASE
+    )
+
+
+def get_field_column(schemas, field_name):
+    """
+    Helper function to get field column type from schemas.
+    This is a placeholder - implement according to your schema structure.
+    """
+    # Implement this based on your schema structure
+    # For the example, we'll just return the field_name
+    return field_name
+
 
 def get_field_column(schemas, field):
     for schema in schemas:
@@ -933,14 +1039,15 @@ def extract_table_names(statement):
     return list(filter(None, table_names))
 
 
-def generate(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
+# TODO: move this out of the util file into a separate zip file
+def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
     ddl_file_name = db_name + ".schema.sql"
     sql_file_name = db_name + ".sql"
     yaml_file_name = db_name + ".yaml"
 
     # Generate the DDL file.
     # TODO: this function should take the ouptut_file name.
-    all_schemas = Generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url)
+    all_schemas = generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url)
 
     # Generate the YAML file.
     util_yaml(ddl_file_name, yaml_file_name)
@@ -961,4 +1068,66 @@ def generate(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
 
     generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir)
     util_gen_stub(PosixPath(sql_file_name))
+    return
+
+
+def list_databases(zip_content_location):
+    create_statement_file_name = "crdb_internal.create_statements.txt"
+    file_path = os.path.join(zip_content_location, create_statement_file_name)
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Could not find create_statements file: " + file_path)
+
+    with open(file_path, mode="r", newline="", encoding="utf-8") as cs_file:
+        # Use the csv reader for tab-separated data.
+        # If your data has embedded quotes/tabs/newlines, you may need more robust settings.
+        reader = csv.reader(cs_file, delimiter='\t', quotechar='"')
+
+        # Attempt to read the header.
+        header = next(reader, None)
+        if not header:
+            raise ValueError("create_statement file is empty or missing a header row.")
+
+        # Build a mapping of column names to their indices.
+        column_index = {col: i for i, col in enumerate(header)}
+
+        # Validate required columns exist.
+        required_columns = [
+            "database_name",
+            "create_statement",
+            "schema_name",
+            "descriptor_type",
+            "descriptor_name",
+        ]
+
+        for col in required_columns:
+            if col not in column_index:
+                raise ValueError(f"Missing expected column '{col}' in CS header.")
+
+        seen_databases = set()
+
+        for record in reader:
+            # Only process rows for the given db_name and tables.
+            if (record[column_index["descriptor_type"]] == "table" and
+                    record[column_index["schema_name"]] == "public"):
+
+                database_name = record[column_index["database_name"]]
+
+                # If this is the first time seeing this table, remember its order.
+                if database_name not in seen_databases and \
+                        "system" not in database_name and \
+                        "crdb_internal" not in database_name:
+                    seen_databases.add(database_name)
+
+        print("Databases found in debug zip:\n")
+        for db in seen_databases:
+            print("* ", db)
+        return
+
+
+def zip_list(zip_dir: PosixPath):
+    # Generate the DDL file.
+    # TODO: this function should take the ouptut_file name.
+    list_databases(zip_dir)
+
     return
