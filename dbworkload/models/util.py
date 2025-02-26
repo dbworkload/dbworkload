@@ -6,7 +6,7 @@ import subprocess
 from io import TextIOWrapper
 from urllib.parse import urlparse
 
-from dbworkload.models.ddl_generator import generate_ddls
+from dbworkload.models.ddl_generator import Generate_ddls, Column
 from jinja2 import Environment, PackageLoader
 from pathlib import PosixPath
 from plotly.subplots import make_subplots
@@ -29,6 +29,7 @@ import sqlparse
 import sys
 import yaml
 import re
+from typing import Dict, List, Any, Tuple, Union, Optional
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)
@@ -678,13 +679,14 @@ def util_gen_stub(input_file: PosixPath):
     model["txn_count"] = len(transactions)
     model["name"] = input_file.name.split(".")[0].capitalize()
     model["txns"] = [
-        sqlparse.format(txn, reindent=True, keyword_case="upper") for txn in transactions
+        sqlparse.format(re.sub(r":-:\|.*?\|:-:", "%s", txn), reindent=True, keyword_case="upper") for txn in transactions
     ]
 
     phs = []
     txn_type = []
     for txn in transactions:
-        phs.append(txn.count("%s"))
+        placeholders = re.findall(r":-:\|(.*?)\|:-:", txn)
+        phs.append(placeholders)
         txn_type.append(
             txn.lower().startswith("select") or txn.lower().find("returning") > 0
         )
@@ -706,7 +708,7 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
     For each txn_fingerprint_id, it only aggregates key values from the first node that contains it;
     if the txn_id is encountered in a later node, its key values are ignored.
 
-    Finally, it writes the grouped key values to <db_name>.workload.sql in the output_file_location.
+    Finally, it writes the grouped key values to <db_name>.sql in the output_file_location.
     """
     statement_statistics_file_name = "crdb_internal.node_statement_statistics.txt"
     nodes_base_dir = os.path.join(zip_content_location, "nodes")
@@ -752,6 +754,9 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
                         "job id=" not in row[column_index["application_name"]]:
                     txn_id = row[column_index["txn_fingerprint_id"]]
                     key_val = replace_placeholders(row[column_index["key"]], all_schemas)
+                    if re.search(r'\b(IFNULL|DEALLOCATE)\b', key_val):
+                        # TODO - not handled
+                        continue
 
                     if txn_id in grouped_keys:
                         # Only add key values from the same node where this txn_id was first encountered.
@@ -763,7 +768,7 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
 
         node += 1  # Move on to the next node directory.
 
-    output_path = os.path.join(output_file_location, f"{db_name}.workload.sql")
+    output_path = os.path.join(output_file_location, f"{db_name}.sql")
     with open(output_path, mode="w", encoding="utf-8") as out_file:
         # Write each txn_fingerprint_id block.
         for txn_id, data in grouped_keys.items():
@@ -786,42 +791,135 @@ def replace_placeholders(sql, all_schemas):
     Returns the modified query.
     """
 
-    # Match the VALUES clause in an INSERT statement
-    values_match = re.search(r'\((.*)\).*VALUES\s.*?', sql, re.IGNORECASE)
-    table_name = extract_table_names(sql)
-    schema = all_schemas[table_name]
-    if values_match:
+    table_names = extract_table_names(sql)
+    schemas = [all_schemas[table_name] for table_name in table_names]
+    def replace_values(values_match):
         values_content = values_match.group(1)  # Extract content inside VALUES(...)
         fields = [f.strip() for f in values_content.split(',')]  # Split by comma and trim spaces
 
         expanded_values = []
         for field in fields:
-            expanded_values.append(schema.columns[field].col_type)
-
+            expanded_values.append(get_field_column(schemas, field))
+    
         # Generate the correct VALUES clause
         placeholders = ', '.join(expanded_values)
+        return f'({values_match.group(1)}){values_match.group(2)} ({placeholders}){values_match.group(4)}'
 
-        # Replace the entire VALUES(...) with corrected placeholders
-        sql = re.sub(r'VALUES\s*\(.*?\)', f'VALUES ({placeholders})', sql, flags=re.IGNORECASE)
+    # Replace the entire VALUES(...) with corrected placeholders
+    sql = re.sub(r'\((.*)\)(.*VALUES\s*)\((.*)\)(\s+RETURNING|\s*;|$)', replace_values, sql, flags=re.IGNORECASE)
 
-    # Match IN clauses and replace
-    def replace_in_clause(match):
-        content = match.group(1)  # Extract inside IN(...)
-        post_in = match.group(2)
-
-        return f'IN ({content.replace("__more__", "%s").replace("_", "%s")}){post_in}'
-
-    sql = re.sub(r'IN\s*\((.*)\)(\s+\w)', replace_in_clause, sql, flags=re.IGNORECASE)
-
+    sql = extract_where_conditions(sql, schemas)
+    sql = extract_set_conditions(sql, schemas)
+    sql = extract_limit(sql)
+    sql = extract_system_time(sql)
     return sql
+
+def extract_limit(sql):
+    limit_column = Column("", "INT8","")
+    # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
+    return re.sub(r'(\s+LIMIT\s+)(_)', f' LIMIT {limit_column}', sql, flags=re.IGNORECASE)
+
+def extract_system_time(sql):
+    system_time = Column("", "TIMESTAMPTZ","")
+    # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
+    return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME {system_time}', sql, flags=re.IGNORECASE)
+
+def extract_set_conditions(sql, schemas):
+    def replace_set_clause(set_match):
+        set_clause=[]
+        set_pairs = [pair for pair in set_match.group(3).strip().split(',')]
+        for set_pair in set_pairs:
+            kv = [pair for pair in set_pair.split('=')]
+            value = get_field_column(schemas, kv[0].strip())
+            set_clause.append(f'{kv[0].strip()} = {value}')
+        set_clause_str = ', '.join(set_clause)
+        return f'{set_match.group(1)}{set_match.group(2)}{set_clause_str}{set_match.group(4)}'
+
+    # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
+    return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE)', replace_set_clause, sql, flags=re.IGNORECASE)
+
+def extract_where_conditions(sql, schemas):
+    """
+    Extracts and parses the WHERE clause conditions from an SQL statement,
+    stopping at termination conditions like ORDER BY, GROUP BY, LIMIT.
+    Returns a list of conditions as tuples (left_operand, operator, right_operand).
+    """
+
+    def replace_where_clause(where_match):
+        where_clause = where_match.group(2).strip()
+
+        conditions = []
+        # Split the WHERE clause by AND/OR to get individual conditions
+        condition_parts = re.split(r'\s+(AND|OR)\s+', where_clause, flags=re.IGNORECASE)
+        
+        # Iterate over the split conditions and parse each one
+        i = 0
+        while i < len(condition_parts):
+            condition = condition_parts[i].strip()
+            operator = condition_parts[i + 1].strip() if i + 1 < len(condition_parts) else None
+            
+            # Split based on common SQL comparison operators
+            parts = re.split(r'\s*(=|<|>|<=|>=|!=|BETWEEN|LIKE|IN)\s*', condition, maxsplit=1)
+            
+            if len(parts) == 3:
+                left_operand, op, right_operand = parts
+                if op.upper() == "BETWEEN" and i + 4 < len(condition_parts):
+                    right_operand += " AND " + condition_parts[i + 2].strip()
+                    i += 4  # Skip the next part as it's part of the BETWEEN condition
+                else:
+                    i+=2
+                conditions.append((left_operand.strip(), op.strip(), right_operand.strip()))
+            else:
+                conditions.append((condition,))
+            
+            if operator:
+                conditions.append((operator,))
+        condition_part = ''
+        for condition in conditions:
+                if len(condition)==3:
+                    fields = [f.strip() for f in condition[0].replace('(','').replace(')','').split(',')]
+                    first_field = get_field_column(schemas, fields[0])
+                    value = condition[2]
+                    if condition[1].upper() == "IN":
+                        if value.strip().lower().startswith("(select"):
+                            without_braces = value.replace('(','').replace(')','')
+                            value = f'({extract_where_conditions(without_braces, schemas)})'
+                        else:
+                            if len(fields) == 1:
+                                col_type = first_field
+                                value = f'({col_type}, {col_type})'
+                            else:
+                                value = ', '.join(
+                                    [f'({get_field_column(schemas, field)}, {get_field_column(schemas, field)})' for field in fields])
+                    elif condition[1].upper() == "BETWEEN":
+                        value = condition[2].replace("_ - _", first_field)
+                    else:
+                        value = condition[2].replace("__more__", first_field)
+                        value = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', first_field, value)
+                    condition_part+=f'{condition[0]} {condition[1]} {value}'
+                else:
+                    condition_part+=f' {condition[0]} '
+
+            
+        return f'{where_match.group(1)} {condition_part}{where_match.group(3)}'
+
+    # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
+    return re.sub(r'(WHERE\s+)(.+?)(\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s+RETURNING|\s*;|$)', replace_where_clause, sql, flags=re.IGNORECASE)
+
+def get_field_column(schemas, field):
+    for schema in schemas:
+        if field in schema.columns:
+            return str(schema.columns[field])
+    raise ValueError(f"Field '{field}' not found in any schema")
 
 
 def extract_table_names(statement):
     # Regular expressions to match different SQL statements
-    insert_pattern = re.compile(r'INSERT INTO\s+["]?(\w+)["]?', re.IGNORECASE)
-    select_pattern = re.compile(r'SELECT.*?FROM\s+["]?(\w+)["]?', re.IGNORECASE)
-    update_pattern = re.compile(r'UPDATE\s+["]?(\w+)["]?', re.IGNORECASE)
-    delete_pattern = re.compile(r'DELETE FROM\s+["]?(\w+)["]?', re.IGNORECASE)
+    insert_pattern = re.compile(r'^INSERT INTO\s+["]?(\w+)["]?', re.IGNORECASE)
+    select_pattern = re.compile(r'^SELECT\s+.*?\s+FROM\s+["]?([\w.]+)["]?', re.IGNORECASE)
+    update_pattern = re.compile(r'^UPDATE\s+["]?(\w+)["]?', re.IGNORECASE)
+    delete_pattern = re.compile(r'^DELETE FROM\s+["]?(\w+)["]?', re.IGNORECASE)
+    join_pattern = re.compile(r'JOIN\s+["]?(\w+)["]?', re.IGNORECASE)
 
     table_names = set()
 
@@ -830,17 +928,19 @@ def extract_table_names(statement):
     table_names.update(select_pattern.findall(statement))
     table_names.update(update_pattern.findall(statement))
     table_names.update(delete_pattern.findall(statement))
+    table_names.update(join_pattern.findall(statement))
 
-    return next(iter(table_names), None)
+    return list(filter(None, table_names))
 
 
 def generate(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
     ddl_file_name = db_name + ".schema.sql"
+    sql_file_name = db_name + ".sql"
     yaml_file_name = db_name + ".yaml"
 
     # Generate the DDL file.
     # TODO: this function should take the ouptut_file name.
-    all_schemas = generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url)
+    all_schemas = Generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url)
 
     # Generate the YAML file.
     util_yaml(ddl_file_name, yaml_file_name)
@@ -860,4 +960,5 @@ def generate(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
              cluster_url)
 
     generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir)
+    util_gen_stub(PosixPath(sql_file_name))
     return

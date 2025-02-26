@@ -2,7 +2,7 @@ import os
 import csv
 import re
 
-def Generate_ddls(zip_content_location, db_name, output_file_location):
+def Generate_ddls(zip_content_location, db_name, output_file_location, cluster_url):
     """
     Reads a TSV file named 'crdb_internal.create_statements.txt' from zip_content_location,
     filters rows by db_name and descriptor_type='table', updates each CREATE statement to
@@ -19,7 +19,7 @@ def Generate_ddls(zip_content_location, db_name, output_file_location):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Could not find TSV file: "+ file_path)
 
-    output_path = os.path.join(output_file_location, f"{db_name}.workload.ddl")
+    output_path = os.path.join(output_file_location, f"{db_name}.schema.sql")
 
     with open(file_path, mode="r", newline="", encoding="utf-8") as tsv_file:
         # Use the csv reader for tab-separated data.
@@ -130,9 +130,9 @@ class Column:
         self.is_primary_key = is_primary_key
 
     def __str__(self):
-        pk_flag = " (PRIMARY KEY)" if self.is_primary_key else ""
+        pk_flag = "PRIMARY KEY" if self.is_primary_key else ""
         null_status = "NULL" if self.is_nullable else "NOT NULL"
-        return f"  - {self.name} ({self.col_type}) {null_status}{pk_flag}"
+        return f":-:|'{self.name}','{self.col_type}','{null_status}','{pk_flag}'|:-:"
 
 class TableSchema:
     def __init__(self, table_name):
