@@ -576,6 +576,7 @@ def worker(
     iterations: int = 0,
     concurrency: int = 0,
 ):
+    print("conn_info =",conn_info)
 
     def gracefully_return(msg):
         # send notification to MainThread
@@ -619,6 +620,7 @@ def worker(
             logger.debug(f"driver: {driver}, params: {conn_info.params}")
             # with Cluster().connect('bank') as conn:
             with get_connection(driver, conn_info) as conn:
+                print("conn_info = ", conn_info.extras, conn_info.params)
                 logger.debug("Connection started")
 
                 # execute setup() only once per thread

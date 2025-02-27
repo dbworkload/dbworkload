@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from typing import Optional
-import dbworkload.models.run
 import dbworkload.models.util
 import dbworkload.utils.common
 from dbworkload.cli.dep import Param, EPILOG
@@ -52,8 +51,14 @@ def util_init(
             "-u",
             help="URL to database cluster (used for data upload)",
         ),
+        anon: bool = typer.Option(
+            False,
+            "--anonymize",
+            "-a",
+            help="Whether or not to anonymize the workload",
+        ),
 ):
-    dbworkload.models.util.init(zip_dir, db_name, cloud_storage_uri, cluster_url)
+    dbworkload.models.util.init(zip_dir, db_name, cloud_storage_uri, cluster_url, anon)
 
 @app.command(
     "list",

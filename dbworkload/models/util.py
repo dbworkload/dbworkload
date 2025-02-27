@@ -685,7 +685,7 @@ def util_gen_stub(input_file: PosixPath):
     ]
 
     txn_type = []
-    model["bind_params"]=[]
+    model["bind_params"] = []
     for txn in transactions:
         txn_type.append(
             txn.lower().startswith("select") or txn.lower().find("returning") > 0
@@ -704,7 +704,7 @@ def util_gen_stub(input_file: PosixPath):
     logger.info(f"Saved stub '{out}'")
 
 
-def generate_workload(zip_content_location, all_schemas, db_name, output_file_location):
+def generate_workload(zip_content_location, all_schemas, db_name, output_file_location, mapping):
     """
     Reads a TSV file named 'crdb_internal.node_statement_statistics.txt' from each numeric node directory
     under zip_content_location/nodes (starting at 1), stopping when a directory doesn't exist.
@@ -739,7 +739,7 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
             if not header:
                 raise ValueError(f"TSV file is empty or missing a header row: {file_path}")
 
-            # Map column names to indices.
+            # Map column names to indices, mapping.
             column_index = {col: i for i, col in enumerate(header)}
 
             # Validate required columns.
@@ -758,7 +758,11 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
                 if row[column_index["database_name"]] == db_name and \
                         "job id=" not in row[column_index["application_name"]]:
                     txn_id = row[column_index["txn_fingerprint_id"]]
-                    key_val = replace_placeholders(row[column_index["key"]], all_schemas)
+                    if mapping:
+                        anon_stmt = anonymize_sql_statement(row[column_index["key"]], mapping)
+                        key_val = replace_placeholders(anon_stmt, all_schemas)
+                    else:
+                        key_val = replace_placeholders(row[column_index["key"]], all_schemas)
                     if re.search(r'\b(IFNULL|DEALLOCATE|WHEN)\b', key_val):
                         # TODO - not handled
                         continue
@@ -786,6 +790,149 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
     print(f"Successfully wrote {len(grouped_keys)} workload statements to {output_path}")
     return grouped_keys
 
+
+def anonymize_sql_statement(sql_statement, mapping):
+    """
+    Anonymize column and table names in SQL statements using the provided mapping.
+
+    Args:
+        sql_statement: A string containing any SQL statement
+        mapping: The mapping dictionary with anonymized table and column names
+
+    Returns:
+        str: The anonymized SQL statement
+    """
+    import re
+
+    # Make a copy of the original statement
+    anonymized_sql = sql_statement
+
+    # Step 1: Anonymize table names
+    for original_table, anon_table in mapping['tables'].items():
+        simple_name = original_table.split('.')[-1]
+
+        # Replace table references with word boundaries
+        anonymized_sql = re.sub(
+            r'\bFROM\s+' + re.escape(simple_name) + r'\b',
+            f'FROM {anon_table}',
+            anonymized_sql,
+            flags=re.IGNORECASE
+        )
+
+        anonymized_sql = re.sub(
+            r'\bJOIN\s+' + re.escape(simple_name) + r'\b',
+            f'JOIN {anon_table}',
+            anonymized_sql,
+            flags=re.IGNORECASE
+        )
+
+        anonymized_sql = re.sub(
+            r'\bUPDATE\s+' + re.escape(simple_name) + r'\b',
+            f'UPDATE {anon_table}',
+            anonymized_sql,
+            flags=re.IGNORECASE
+        )
+
+        anonymized_sql = re.sub(
+            r'\bINSERT\s+INTO\s+' + re.escape(simple_name) + r'\b',
+            f'INSERT INTO {anon_table}',
+            anonymized_sql,
+            flags=re.IGNORECASE
+        )
+
+    # Step 2: Create a comprehensive list of words to avoid replacing
+    avoid_words = {
+        "select", "from", "where", "group", "order", "by", "having", "limit",
+        "insert", "update", "delete", "set", "into", "values", "returning",
+        "join", "inner", "outer", "left", "right", "full", "on", "using",
+        "union", "all", "intersect", "except", "case", "when", "then", "else", "end",
+        "and", "or", "not", "null", "true", "false", "is", "in", "between", "like",
+        "as", "of", "system", "time", "distinct", "exists", "any", "some", "offset",
+        "asc", "desc", "interval", "count", "sum", "avg", "min", "max", "now",
+    }
+
+    # Step 3: Determine the primary table
+    primary_table = None
+
+    # Look for table patterns
+    for pattern in [
+        r'\bFROM\s+([^\s,();]+)',
+        r'\bUPDATE\s+([^\s,();]+)',
+        r'\bINSERT\s+INTO\s+([^\s,();]+)'
+    ]:
+        match = re.search(pattern, anonymized_sql, re.IGNORECASE)
+        if match:
+            table_ref = match.group(1)
+            # Find the matching original table
+            for original_table in mapping['tables']:
+                if original_table.split('.')[-1] == table_ref or mapping['tables'][original_table] == table_ref:
+                    primary_table = original_table
+                    break
+            if primary_table:
+                break
+
+    # Step 4: Handle INSERT columns specifically
+    if primary_table and 'INSERT INTO' in anonymized_sql.upper():
+        insert_match = re.search(r'INSERT\s+INTO\s+[^\s(]+\s*\(([^)]+)\)', anonymized_sql, re.IGNORECASE)
+
+        if insert_match:
+            columns_str = insert_match.group(1)
+            columns = [col.strip() for col in columns_str.split(',')]
+
+            # Use primary table's column mapping
+            anonymized_columns = []
+            for col in columns:
+                if primary_table in mapping['columns'] and col in mapping['columns'][primary_table]:
+                    anonymized_columns.append(mapping['columns'][primary_table][col])
+                else:
+                    # If not found in primary table, check other tables
+                    found = False
+                    for table in mapping['columns']:
+                        if col in mapping['columns'][table]:
+                            anonymized_columns.append(mapping['columns'][table][col])
+                            found = True
+                            break
+                    if not found:
+                        anonymized_columns.append(col)
+
+            # Replace the column list
+            new_columns_str = ', '.join(anonymized_columns)
+            anonymized_sql = re.sub(
+                r'(INSERT\s+INTO\s+[^\s(]+\s*\()([^)]+)(\))',
+                r'\1' + new_columns_str + r'\3',
+                anonymized_sql,
+                flags=re.IGNORECASE
+            )
+
+    # Step 5: For each table in the mapping, explicitly replace its columns
+    processed_columns = set()
+
+    for table_name, table_columns in mapping['columns'].items():
+        for original_col, anon_col in table_columns.items():
+            # Skip if already processed or if it's a word to avoid
+            if original_col in processed_columns or original_col.lower() in avoid_words:
+                continue
+
+            # Use word boundaries to replace only whole words
+            anonymized_sql = re.sub(
+                r'\b' + re.escape(original_col) + r'\b',
+                anon_col,
+                anonymized_sql
+            )
+
+            processed_columns.add(original_col)
+
+    # Step 6: Special handling for specific keywords that should not be anonymized
+    for keyword in ['valid', 'INTERVAL', 'TIMESTAMPTZ', 'LIMIT']:
+        # If the keyword was accidentally anonymized, restore it
+        for anon_col in processed_columns:
+            anonymized_sql = re.sub(
+                r'\b' + re.escape(anon_col) + r'\b' + keyword,
+                keyword,
+                anonymized_sql
+            )
+
+    return anonymized_sql
 
 def replace_placeholders(sql, all_schemas):
     """
@@ -834,22 +981,25 @@ def extract_system_time(sql):
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
     return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME \'{system_time}Z\'', sql, flags=re.IGNORECASE)
 
+
 def get_system_time():
     minutes = random.randint(0, 59)
     seconds = random.randint(0, 59)
-    return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=minutes, seconds=seconds)).strftime('%Y-%m-%d %H:%M:%S')
+    return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=minutes, seconds=seconds)).strftime(
+        '%Y-%m-%d %H:%M:%S')
+
 
 def extract_set_conditions(sql, schemas):
     def replace_set_clause(set_match):
         # The SET clause captured by group(3)
         set_str = set_match.group(3).strip()
-        
+
         # Check if it is in the tuple form: (field1, field2) - (value1, value2)
         tuple_form = re.match(r'^\((.*?)\)\s*[-=]\s*\((.*?)\)$', set_str)
         if tuple_form:
             fields_str = tuple_form.group(1).strip()
             values_str = tuple_form.group(2).strip()
-            
+
             fields = [f.strip() for f in fields_str.split(',')]
             values = [v.strip() for v in values_str.split(',')]
             set_clause = []
@@ -876,11 +1026,13 @@ def extract_set_conditions(sql, schemas):
                     new_val = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', new_val, value)
                 set_clause.append(f'{field} = {new_val}')
             set_clause_str = ', '.join(set_clause)
-        
+
         return f'{set_match.group(1)}{set_match.group(2)}{set_clause_str}{set_match.group(4)}'
-    
+
     # Match SET clause and stop at termination keywords (WHERE, ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE|\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s*;|$)', replace_set_clause, sql, flags=re.IGNORECASE)
+    return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE|\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s*;|$)',
+                  replace_set_clause, sql, flags=re.IGNORECASE)
+
 
 def extract_where_conditions(sql, schemas):
     """
@@ -1059,11 +1211,11 @@ def get_field_column(schemas, field):
 
 def extract_table_names(statement):
     # Regular expressions to match different SQL statements
-    insert_pattern = re.compile(r'^INSERT INTO\s+["]?(\w+)["]?', re.IGNORECASE)
-    select_pattern = re.compile(r'^SELECT\s+.*?\s+FROM\s+["]?([\w.]+)["]?', re.IGNORECASE)
-    update_pattern = re.compile(r'^UPDATE\s+["]?(\w+)["]?', re.IGNORECASE)
-    delete_pattern = re.compile(r'^DELETE FROM\s+["]?(\w+)["]?', re.IGNORECASE)
-    join_pattern = re.compile(r'JOIN\s+["]?(\w+)["]?', re.IGNORECASE)
+    insert_pattern = re.compile(r'^INSERT INTO\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
+    select_pattern = re.compile(r'^SELECT\s+.*?\s+FROM\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
+    update_pattern = re.compile(r'^UPDATE\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
+    delete_pattern = re.compile(r'^DELETE FROM\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
+    join_pattern = re.compile(r'JOIN\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
 
     table_names = set()
 
@@ -1078,33 +1230,36 @@ def extract_table_names(statement):
 
 
 # TODO: move this out of the util file into a separate zip file
-def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
-    ddl_file_name = db_name + ".schema.sql"
+def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url, anonymize):
+    if anonymize:
+        ddl_file_name = db_name + ".anonymize.schema.sql"
+    else:
+        ddl_file_name = db_name + ".schema.sql"
+
     sql_file_name = db_name + ".sql"
     yaml_file_name = db_name + ".yaml"
 
     # Generate the DDL file.
-    # TODO: this function should take the ouptut_file name.
-    all_schemas = generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url)
+    all_schemas, mapping = generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url, ddl_file_name, anonymize)
 
     # # Generate the YAML file.
-    # util_yaml(ddl_file_name, yaml_file_name)
+    util_yaml(ddl_file_name, yaml_file_name)
 
-    # # Generate the CSV file.
-    # # TODO: We should parameterize the values we're passing in below, so that
-    # #  users can set them themselves.
-    # util_csv(yaml_file_name,
-    #          db_name,
-    #          "",
-    #          1,
-    #          1000000,
-    #          "\t",
-    #          "localhost",
-    #          26257,
-    #          cloud_storage_uri,
-    #          cluster_url)
+    # Generate the CSV file.
+    # TODO: We should parameterize the values we're passing in below, so that
+    #  users can set them themselves.
+    util_csv(yaml_file_name,
+             db_name,
+             "",
+             1,
+             1000000,
+             "\t",
+             "localhost",
+             26257,
+             cloud_storage_uri,
+             cluster_url)
 
-    generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir)
+    generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir, mapping)
     util_gen_stub(PosixPath(sql_file_name))
     return
 
