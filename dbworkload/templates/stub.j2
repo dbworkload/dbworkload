@@ -73,6 +73,7 @@ class {{ model.name }}:
             {%- set found_commit = false -%}
             {%- set skip_begin = true -%}
             {%- for stmt in statements -%}
+                {%- set stmt_index = loop.index0 -%}
                 {%- set stmt = stmt.strip() -%}
                 {%- if stmt and not found_commit -%}
                     {%- if skip_begin and (stmt.upper() == 'BEGIN' or stmt.upper().startswith('BEGIN ')) -%}
@@ -85,7 +86,7 @@ class {{ model.name }}:
                 {{ stmt | indent(width=16) }}
                 """,
                 (
-                {%- for bind_param in model.bind_params[x] %}
+                {%- for bind_param in model.bind_params[x][stmt_index] %}
                     generate_random_value({{bind_param}}),
                 {%- endfor %}
                 ),

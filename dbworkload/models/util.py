@@ -684,15 +684,18 @@ def util_gen_stub(input_file: PosixPath):
         transactions
     ]
 
-    phs = []
     txn_type = []
+    model["bind_params"]=[]
     for txn in transactions:
-        placeholders = re.findall(r":-:\|(.*?)\|:-:", txn)
-        phs.append(placeholders)
         txn_type.append(
             txn.lower().startswith("select") or txn.lower().find("returning") > 0
         )
-    model["bind_params"] = phs
+        statements = txn.split(';')
+        stmt_placeholder = []
+        for stmt in statements:
+            placeholders = re.findall(r":-:\|(.*?)\|:-:", stmt)
+            stmt_placeholder.append(placeholders)
+        model["bind_params"].append(stmt_placeholder)
     model["txn_type"] = txn_type
 
     with open(out, "w") as f:
@@ -756,7 +759,7 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
                         "job id=" not in row[column_index["application_name"]]:
                     txn_id = row[column_index["txn_fingerprint_id"]]
                     key_val = replace_placeholders(row[column_index["key"]], all_schemas)
-                    if re.search(r'\b(IFNULL|DEALLOCATE)\b', key_val):
+                    if re.search(r'\b(IFNULL|DEALLOCATE|WHEN)\b', key_val):
                         # TODO - not handled
                         continue
 
@@ -793,7 +796,6 @@ def replace_placeholders(sql, all_schemas):
     Returns the modified query.
     """
 
-    print("replacing placeholders in: ",sql)
     table_names = extract_table_names(sql)
     if table_names is None:
         return sql
@@ -828,25 +830,57 @@ def extract_limit(sql):
 
 
 def extract_system_time(sql):
-    system_time = Column("", "TIMESTAMPTZ", "")
+    system_time = get_system_time()
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME {system_time}', sql, flags=re.IGNORECASE)
+    return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME \'{system_time}Z\'', sql, flags=re.IGNORECASE)
 
+def get_system_time():
+    minutes = random.randint(0, 59)
+    seconds = random.randint(0, 59)
+    return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=minutes, seconds=seconds)).strftime('%Y-%m-%d %H:%M:%S')
 
 def extract_set_conditions(sql, schemas):
     def replace_set_clause(set_match):
-        set_clause = []
-        set_pairs = [pair for pair in set_match.group(3).strip().split(',')]
-        for set_pair in set_pairs:
-            kv = [pair for pair in set_pair.split('=')]
-            value = get_field_column(schemas, kv[0].strip())
-            set_clause.append(f'{kv[0].strip()} = {value}')
-        set_clause_str = ', '.join(set_clause)
+        # The SET clause captured by group(3)
+        set_str = set_match.group(3).strip()
+        
+        # Check if it is in the tuple form: (field1, field2) - (value1, value2)
+        tuple_form = re.match(r'^\((.*?)\)\s*[-=]\s*\((.*?)\)$', set_str)
+        if tuple_form:
+            fields_str = tuple_form.group(1).strip()
+            values_str = tuple_form.group(2).strip()
+            
+            fields = [f.strip() for f in fields_str.split(',')]
+            values = [v.strip() for v in values_str.split(',')]
+            set_clause = []
+            for field, value in zip(fields, values):
+                new_val = get_field_column(schemas, field)
+                if value is not None:
+                    # Replace the value with the dynamic value from schemas (or any processing)
+                    new_val = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', new_val, value)
+                set_clause.append(f'{field} = {new_val}')
+            set_clause_str = ', '.join(set_clause)
+        else:
+            # Original "field=value" format (comma-separated)
+            set_clause = []
+            set_pairs = [pair.strip() for pair in set_str.split(',')]
+            for set_pair in set_pairs:
+                kv = [x.strip() for x in set_pair.split('=')]
+                if len(kv) != 2:
+                    continue  # or raise an error if appropriate
+                field = kv[0]
+                value = kv[1]
+                new_val = get_field_column(schemas, field)
+                if value is not None:
+                    # Replace the value with the dynamic value from schemas (or any processing)
+                    new_val = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', new_val, value)
+                set_clause.append(f'{field} = {new_val}')
+            set_clause_str = ', '.join(set_clause)
+        
         return f'{set_match.group(1)}{set_match.group(2)}{set_clause_str}{set_match.group(4)}'
-
-    # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE)', replace_set_clause, sql, flags=re.IGNORECASE)
-
+    
+    # Match SET clause and stop at termination keywords (WHERE, ORDER BY, GROUP BY, LIMIT, etc.)
+    return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE|\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s*;|$)', replace_set_clause, sql, flags=re.IGNORECASE)
 
 def extract_where_conditions(sql, schemas):
     """
@@ -988,8 +1022,12 @@ def extract_where_conditions(sql, schemas):
         elif operator == "BETWEEN":
             right_operand = right_operand.replace("_ - _", first_field)
         else:
-            right_operand = right_operand.replace("__more__", first_field)
-            right_operand = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', first_field, right_operand)
+            if "_::INTERVAL" in right_operand:
+                field = re.sub(r'TIMESTAMP(TZ)?', 'INTERVAL', first_field)
+                right_operand = right_operand.replace("_::INTERVAL", f'{field}::INTERVAL')
+            else:
+                right_operand = right_operand.replace("__more__", first_field)
+                right_operand = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', first_field, right_operand)
 
         return f"{left_operand} {operator} {right_operand}"
 
@@ -1049,22 +1087,22 @@ def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url):
     # TODO: this function should take the ouptut_file name.
     all_schemas = generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url)
 
-    # Generate the YAML file.
-    util_yaml(ddl_file_name, yaml_file_name)
+    # # Generate the YAML file.
+    # util_yaml(ddl_file_name, yaml_file_name)
 
-    # Generate the CSV file.
-    # TODO: We should parameterize the values we're passing in below, so that
-    #  users can set them themselves.
-    util_csv(yaml_file_name,
-             db_name,
-             "",
-             1,
-             1000000,
-             "\t",
-             "localhost",
-             26257,
-             cloud_storage_uri,
-             cluster_url)
+    # # Generate the CSV file.
+    # # TODO: We should parameterize the values we're passing in below, so that
+    # #  users can set them themselves.
+    # util_csv(yaml_file_name,
+    #          db_name,
+    #          "",
+    #          1,
+    #          1000000,
+    #          "\t",
+    #          "localhost",
+    #          26257,
+    #          cloud_storage_uri,
+    #          cluster_url)
 
     generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir)
     util_gen_stub(PosixPath(sql_file_name))
