@@ -103,7 +103,6 @@ def util_csv(
                             "",
                             cloud_storage_uri + "/" + str(output_dir),
                     ):
-                        # TODO: we need to send the schema over for creation first.
                         print("running cockroach to upload")
                         subprocess.run(
                             ['cockroach', 'sql', '--url', cluster_url, '-e', s],

@@ -117,7 +117,7 @@ def generate_ddls(zip_content_location, db_name, output_file_location, cluster_u
     if not anonymize:
         with open(output_path, mode="w", encoding="utf-8") as out_file:
             # Prepend the CREATE DATABASE statement.
-            out_file.write(f"CREATE DATABASE IF NOT EXISTS {db_name};\n\n")
+            out_file.write(f"create database if not exists {db_name};\n\n")
 
             # Append each create statement followed by a semicolon and extra newline.
             for stmt in statements:
@@ -145,7 +145,7 @@ def generate_ddls(zip_content_location, db_name, output_file_location, cluster_u
 
         # Write all results to the file
         with open(output_path, mode="w", encoding="utf-8") as out_file:
-            out_file.write(f"CREATE DATABASE IF NOT EXISTS {anon_db_name};\n\n")
+            out_file.write(f"create database if not exists {anon_db_name};\n\n")
 
             for anon_stmt in anonymized_statements:
                 if not anon_stmt.startswith("Error:"):
