@@ -1191,17 +1191,6 @@ def extract_where_conditions(sql, schemas):
         flags=re.IGNORECASE
     )
 
-
-def get_field_column(schemas, field_name):
-    """
-    Helper function to get field column type from schemas.
-    This is a placeholder - implement according to your schema structure.
-    """
-    # Implement this based on your schema structure
-    # For the example, we'll just return the field_name
-    return field_name
-
-
 def get_field_column(schemas, field):
     for schema in schemas:
         if field in schema.columns:
