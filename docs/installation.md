@@ -6,7 +6,7 @@
 
 `dbworkload` dependencies are installed automatically by the `pip` tool.
 
-It has run successfully on Ubuntu 20.04+, MacOSX on both Intel and Apple silicone.
+It has run successfully on Ubuntu 20.04+, MacOSX on both Intel and Apple silicon.
 
 ## dbworkload installation
 
