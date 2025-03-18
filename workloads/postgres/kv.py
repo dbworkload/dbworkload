@@ -53,8 +53,8 @@ class Kv:
                     f"The selected value_type '{t}' is invalid. The possible values are {', '.join(COL_TYPES)}."
                 )
 
-        self.key_types_and_sizes = dict(zip_longest(self.key_types, self.key_sizes))
-        self.value_types_and_sizes = dict(
+        self.key_types_and_sizes = list(zip_longest(self.key_types, self.key_sizes))
+        self.value_types_and_sizes = list(
             zip_longest(self.value_types, self.value_sizes)
         )
 
@@ -100,7 +100,7 @@ class Kv:
         self.key_pool = deque(
             (
                 tuple(
-                    self.__get_data(t, s) for t, s in self.key_types_and_sizes.items()
+                    self.__get_data(t, s) for t, s in self.key_types_and_sizes
                 ),
             ),
             maxlen=self.key_pool_size,
@@ -203,14 +203,14 @@ class Kv:
             args = []
             for _ in range(self.batch_size):
                 k = tuple(
-                    [self.__get_data(t, s) for t, s in self.key_types_and_sizes.items()]
+                    [self.__get_data(t, s) for t, s in self.key_types_and_sizes]
                 )
                 self.key_pool.append(k)
                 args.extend(k)
                 args.extend(
                     [
                         self.__get_data(t, s)
-                        for t, s in self.value_types_and_sizes.items()
+                        for t, s in self.value_types_and_sizes
                     ]
                 )
 
