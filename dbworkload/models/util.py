@@ -978,7 +978,7 @@ def extract_limit(sql):
 def extract_system_time(sql):
     system_time = get_system_time()
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME \'{system_time}Z\'', sql, flags=re.IGNORECASE)
+    return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME \'-1s\'', sql, flags=re.IGNORECASE)
 
 
 def get_system_time():
