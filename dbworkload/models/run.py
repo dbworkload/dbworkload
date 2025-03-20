@@ -16,6 +16,9 @@ import tabulate
 from threading import Thread
 import time
 import traceback
+import os
+import errno
+
 
 # from cassandra.cluster import Cluster, ExecutionProfile, EXEC_PROFILE_DEFAULT, Session
 # from cassandra.policies import (
@@ -29,6 +32,8 @@ import traceback
 DEFAULT_SLEEP = 3
 MAX_RETRIES = 3
 FREQUENCY = 10
+
+FIFO = "dbworkload.pipe"
 
 logger = logging.getLogger("dbworkload")
 
@@ -106,6 +111,7 @@ def signal_handler(sig, frame):
             sys.exit(1)
 
     logger.debug("Sent poison pill to all procs")
+    os.remove(FIFO)
 
 
 def cycle(iterable, backwards=False):
@@ -332,6 +338,20 @@ def run(
     global supervisors
     supervisors = {}
     queues = {}
+
+    # start a separate thread for messages coming in via the pipe
+    # echo 5 > dbworkload.pipe # create 5 more connections
+    Thread(
+        target=listen_to_pipe,
+        daemon=True,
+        args=(
+            queues,
+            0,
+            procs,
+            None,
+            concurrency,
+        ),
+    ).start()
 
     # launch supervisors in a dedicated OS process
     for x in range(procs):
@@ -809,6 +829,38 @@ def worker(
                 logger.error(type(e), stack_info=True)
                 to_main_q.put(e)
                 return
+
+
+def listen_to_pipe(queues, ramp_time, procs, iterations_per_thread, concurrency):
+    # https://stackoverflow.com/questions/39089776/python-read-named-pipe
+
+    try:
+        os.mkfifo(FIFO)
+    except OSError as oe:
+        if oe.errno != errno.EEXIST:
+            raise
+
+    while True:
+        with open(FIFO) as fifo:
+            for line in fifo:
+                try:
+                    t = int(line)
+                except:
+                    continue
+
+                logger.info(f"{'Adding' if t > 0 else 'Removing' } {abs(t)} threads.")
+                Thread(
+                    target=launch_or_kill_workers,
+                    daemon=True,
+                    args=(
+                        queues,
+                        ramp_time,
+                        t,
+                        procs,
+                        iterations_per_thread,
+                        concurrency,
+                    ),
+                ).start()
 
 
 def log_and_sleep(e: Exception):
