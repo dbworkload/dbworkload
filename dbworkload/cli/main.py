@@ -97,6 +97,12 @@ def run(
         help="Duration in seconds. Defaults to <ad infinitum>.",
         show_default=False,
     ),
+    max_rate: int = typer.Option(
+        None,
+        "--max-rate",
+        show_default=False,
+        help="Set the max-rate to have dbworkload manage concurrency. Defaults to None.",
+    ),
     conn_duration: int = typer.Option(
         None,
         "-k",
@@ -237,6 +243,7 @@ def run(
         conn_info,
         duration,
         conn_duration,
+        max_rate,
         args,
         driver,
         quiet,
@@ -289,12 +296,17 @@ def load_args(args: str):
 def load_schedule(schedule_path: str):
     if schedule_path:
         if os.path.exists(schedule_path):
-            return pd.read_csv(schedule_path, header=None).values.tolist()
+            df = pd.read_csv(schedule_path, dtype="Int64", comment="#").fillna(0)
+            # trasform ramp and duration columns from minutes to seconds
+            df[["ramp", "duration"]] = df[["ramp", "duration"]] * 60
+
+            return df.values.tolist()
         else:
             try:
                 return json.loads(schedule_path)
             except:
                 logger.error(f"couldn't decode {schedule_path} as JSON")
+
 
 def _version_callback(value: bool) -> None:
     if value:

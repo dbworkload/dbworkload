@@ -109,7 +109,6 @@ def signal_handler(sig, frame):
 
 
 def cycle(iterable, backwards=False):
-
     global current_proc
 
     if not backwards:
@@ -121,7 +120,11 @@ def cycle(iterable, backwards=False):
         return v
 
 
-def ramp_up(
+# Launch or kill worker threads based on cc_change value.
+# workers are added or removed evenly across all supervisors.
+# If a ramp time is specified, threads creation or destruction
+# will be paced accordingly.
+def launch_or_kill_workers(
     queues: list,
     ramp_time: int,
     cc_change: int,
@@ -129,11 +132,10 @@ def ramp_up(
     iterations_per_thread,
     concurrency,
 ):
-
     if cc_change == 0:
         return
 
-    ramp_interval = ramp_time * 60 / abs(cc_change)
+    ramp_interval = ramp_time / abs(cc_change)
     global thread_id
 
     if cc_change > 0:
@@ -164,6 +166,7 @@ def run(
     conn_info: dict,
     duration: int,
     conn_duration: int,
+    max_rate: int,
     args: dict,
     driver: str,
     quiet: bool,
@@ -188,7 +191,7 @@ def run(
                     logger.error("Timed out")
                     sys.exit(1)
 
-            for x in processes.values():
+            for x in supervisors.values():
                 if x.is_alive():
                     x.join()
 
@@ -326,14 +329,15 @@ def run(
     to_main_q = mp.Queue()
 
     global queues
-    global processes
-    processes = {}
+    global supervisors
+    supervisors = {}
     queues = {}
 
+    # launch supervisors in a dedicated OS process
     for x in range(procs):
         queues[x] = mp.Queue()
-        processes[x] = mp.Process(
-            target=proc,
+        supervisors[x] = mp.Process(
+            target=supervisor,
             args=(
                 to_main_q,
                 queues[x],
@@ -348,7 +352,7 @@ def run(
             ),
             daemon=True,
         )
-        processes[x].start()
+        supervisors[x].start()
 
     # report time happens 2 seconds after the stats are received.
     # we add this buffer to make sure we get all the stats reports
@@ -365,6 +369,7 @@ def run(
     current_proc = -1
     current_cc = 0
     thread_id = 0
+    pause_for_ramp_time = 0
 
     iterations_per_thread = None
     if iterations:
@@ -378,42 +383,67 @@ def run(
                 f"You have requested {iterations} iterations on {concurrency} threads. {iterations} modulo {concurrency} = {iterations%concurrency} iterations will not be executed."
             )
 
+    # if no schedule was passed, create a schedule with just 1 line
     if schedule is None:
-        schedule = [[concurrency, ramp / 60, duration / 60 if duration else duration]]
+        schedule = [(concurrency, max_rate, ramp, duration)]
 
+    # loop through all lines in the schedule
     for i, s in enumerate(schedule):
-
-        cc, ramp_time, dur = s
+        cc, max_rate, ramp_time, dur = s
 
         # sanitize
         if dur and ramp_time > dur:
             ramp_time = dur
 
-        logger.debug(
-            f"Starting schedule {i+1}/{len(schedule)}: cc = {cc}, ramp = {ramp_time}, dur = {dur}"
+        logger.info(
+            f"Starting schedule {i+1}/{len(schedule)}: cc={cc}, max_rate={max_rate}, ramp={ramp_time}, dur={dur}"
         )
 
-        if dur:
-            end_schedule_time = time.time() + dur * 60
-        else:
-            end_schedule_time = float("inf")
+        # always make sure that a duration is specified, even if none was passed
+        # in which case it defaults to infinite
+        end_schedule_time = time.time() + dur if dur else float("inf")
 
-        Thread(
-            target=ramp_up,
-            daemon=True,
-            args=(
-                queues,
-                ramp_time,
-                cc - current_cc,
-                procs,
-                iterations_per_thread,
-                concurrency,
-            ),
-        ).start()
+        # if max_rate was set instead of concurrency
+        # and current_cc = 0,
+        # start the workload with 1 thread so that dbworkload
+        # has stats to measure on for adding/removing threads
+        # as part of the calculations for maintaining
+        # the desired max_rate
+        if current_cc == 0 and max_rate:
+            Thread(
+                target=launch_or_kill_workers,
+                daemon=True,
+                args=(
+                    queues,
+                    ramp_time,
+                    1,
+                    procs,
+                    iterations_per_thread,
+                    concurrency,
+                ),
+            ).start()
 
-        current_cc = cc
+            current_cc = 1
+
+        if not max_rate:
+            Thread(
+                target=launch_or_kill_workers,
+                daemon=True,
+                args=(
+                    queues,
+                    ramp_time,
+                    cc - current_cc,
+                    procs,
+                    iterations_per_thread,
+                    concurrency,
+                ),
+            ).start()
+
+            current_cc = cc
+
         returned_threads = 0
 
+        # loop for the entire duration of the schedule's current line
         while time.time() < end_schedule_time:
             try:
                 # read from the queue for stats or completion messages
@@ -459,6 +489,55 @@ def run(
 
                 report = stats.calculate_stats(active_connections, endtime)
 
+                # if max_rate is specified, try to stick to it.
+                # to calculate how to get to the max rate, we need a non-empty report
+                if max_rate and report:
+                    current_rate = report[0][6]  # __cycle__ period_ops/s
+
+                    # approximate how many threads are needed to get
+                    # to the desired max_rate given the current QPS rate
+                    # and current threads count
+                    extrapolated_cc = int(max_rate / (current_rate / current_cc))
+
+                    # adjust the thread count if there is a difference
+                    # between the current thread count and the calculated
+                    # thread count, but not if there is one such operation already
+                    # running, that is, not if there's an operation that is slow due
+                    # to a long ramp_time.
+                    if (
+                        extrapolated_cc - current_cc
+                        and time.time() >= pause_for_ramp_time
+                    ):
+                        Thread(
+                            target=launch_or_kill_workers,
+                            daemon=True,
+                            args=(
+                                queues,
+                                ramp_time,
+                                extrapolated_cc - current_cc,
+                                procs,
+                                iterations_per_thread,
+                                concurrency,
+                            ),
+                        ).start()
+
+                        # make sure we will not add/remove threads while the newly
+                        # created thread is still working
+                        pause_for_ramp_time = time.time() + ramp_time + 2 * FREQUENCY
+
+                        logger.warning(
+                            f"Calculating max_rate: desired max_rate: {max_rate}, "
+                            f"current_rate: {report[0][6]}, current_cc = {current_cc}, "
+                            f"extrapolated_cc = {extrapolated_cc}, "
+                            f"difference: {extrapolated_cc-current_cc}"
+                        )
+                        current_cc = extrapolated_cc
+
+                        # ramp_time is only considered for reaching the desired max_rate.
+                        # For adjustments over time, we want the changes to happen immediately
+                        # and not smoothed out over the initial ramp_time value
+                        ramp_time = 0
+
                 centroids = stats.get_centroids()
 
                 stats.new_window(endtime)
@@ -486,7 +565,15 @@ def run(
     gracefully_shutdown()
 
 
-def proc(
+# a supervisor runs in a separate process.
+# The idea is to create as many supervisors as vCPUs.
+# The sole role of the supervisor is to listen for instructions
+# from the MainProcess.
+# Instructions are:
+#   - Create a new worker.
+#   - Destroy a worker.
+#   - Destroy all workers and return.
+def supervisor(
     to_main_q: mp.Queue,
     from_main_q: mp.Queue,
     log_level: str,
@@ -498,7 +585,6 @@ def proc(
     offset: int,
     id: int,
 ):
-
     def gracefully_return(msg):
         # wait for Threads to return before
         # letting the Process MainThread return
@@ -518,48 +604,42 @@ def proc(
         return
 
     logger.setLevel(log_level)
-
     logger.debug(f"PROC-{id} started")
 
     threads: list[Thread] = []
-
     from_proc_q = mp.Queue()
 
     # capture KeyboardInterrupt and do nothing
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     while True:
-        try:
-            msg = from_main_q.get(block=True)
+        msg = from_main_q.get(block=True)
 
-            if msg == "proc_end":
-                logger.debug(f"PROC-{id} terminating...")
-                gracefully_return("proc_returned")
-                return
-            elif msg == "kill_one":
-                from_proc_q.put("poison_pill")
-            elif isinstance(msg, tuple):
-                t = Thread(
-                    target=worker,
-                    daemon=True,
-                    args=(
-                        to_main_q,
-                        from_proc_q,
-                        log_level,
-                        conn_info,
-                        driver,
-                        workload,
-                        args,
-                        conn_duration,
-                        offset,
-                        *msg,
-                    ),
-                )
-                t.start()
-                threads.append(t)
-
-        except queue.Empty:
-            pass
+        if msg == "proc_end":
+            logger.debug(f"PROC-{id} terminating...")
+            gracefully_return("proc_returned")
+            return
+        elif msg == "kill_one":
+            from_proc_q.put("poison_pill")
+        elif isinstance(msg, tuple):
+            t = Thread(
+                target=worker,
+                daemon=True,
+                args=(
+                    to_main_q,
+                    from_proc_q,
+                    log_level,
+                    conn_info,
+                    driver,
+                    workload,
+                    args,
+                    conn_duration,
+                    offset,
+                    *msg,
+                ),
+            )
+            t.start()
+            threads.append(t)
 
 
 def worker(
@@ -576,7 +656,6 @@ def worker(
     iterations: int = 0,
     concurrency: int = 0,
 ):
-
     def gracefully_return(msg):
         # send notification to MainThread
         to_main_q.put(msg)

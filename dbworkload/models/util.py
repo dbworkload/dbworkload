@@ -54,7 +54,9 @@ def util_csv(
     if os.path.isdir(output_dir):
         os.rename(
             output_dir,
-            str(output_dir) + "." + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
+            str(output_dir)
+            + "."
+            + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
         )
 
     # create new directory
@@ -102,7 +104,12 @@ def util_yaml(input: PosixPath, output: PosixPath):
 
     # backup the current file as to not override
     if os.path.exists(output):
-        os.rename(output, str(output) + "." + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"))
+        os.rename(
+            output,
+            str(output)
+            + "."
+            + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
+        )
 
     # create new file
     with open(output, "w") as f:
