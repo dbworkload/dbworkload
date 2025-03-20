@@ -98,11 +98,7 @@ class Kv:
 
         # create pool to pick the key from
         self.key_pool = deque(
-            (
-                tuple(
-                    self.__get_data(t, s) for t, s in self.key_types_and_sizes
-                ),
-            ),
+            (tuple(self.__get_data(t, s) for t, s in self.key_types_and_sizes),),
             maxlen=self.key_pool_size,
         )
 
@@ -202,16 +198,11 @@ class Kv:
         with conn.cursor() as cur:
             args = []
             for _ in range(self.batch_size):
-                k = tuple(
-                    [self.__get_data(t, s) for t, s in self.key_types_and_sizes]
-                )
+                k = tuple([self.__get_data(t, s) for t, s in self.key_types_and_sizes])
                 self.key_pool.append(k)
                 args.extend(k)
                 args.extend(
-                    [
-                        self.__get_data(t, s)
-                        for t, s in self.value_types_and_sizes
-                    ]
+                    [self.__get_data(t, s) for t, s in self.value_types_and_sizes]
                 )
 
             cur.execute(
