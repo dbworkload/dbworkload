@@ -3,7 +3,7 @@
 from .. import __version__
 import typer
 
-EPILOG = "GitHub: <https://github.com/fabiog1901/dbworkload>"
+EPILOG = "Docs: <https://dbworkload.github.io/dbworkload/>"
 
 
 class ConnInfo:
