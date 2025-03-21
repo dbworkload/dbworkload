@@ -77,8 +77,6 @@ nav:
     - index.md
   - Getting Started:
     - getting_started/index.md
-    - installation.md
-    - drivers.md
     - getting_started/0.md
     - getting_started/1.md
     - getting_started/2.md
@@ -87,16 +85,24 @@ nav:
     - getting_started/5.md
     - getting_started/6.md
     - getting_started/7.md
-  - how_it_works.md
-  - Utility Functions:
-      - util/index.md
-      - util/yaml.md
-      - util/csv.md
-      - util/merge_sort.md
-      - util/gen_stub.md
-      - util/html.md
-      - util/plot.md
-      - util/merge_csvs.md
-  - cli.md
+  - Docs:
+    - docs/installation.md
+    - docs/drivers.md
+    - docs/how_it_works.md
+    - Run Options:
+        - docs/run/index.md
+        - docs/run/schedule.md
+        - docs/run/pipe.md
+        - docs/run/max-rate.md
+    - Utility Functions:
+        - docs/util/index.md
+        - docs/util/yaml.md
+        - docs/util/csv.md
+        - docs/util/merge_sort.md
+        - docs/util/gen_stub.md
+        - docs/util/html.md
+        - docs/util/plot.md
+        - docs/util/merge_csvs.md
+    - docs/cli.md
   - faq.md
   - about.md

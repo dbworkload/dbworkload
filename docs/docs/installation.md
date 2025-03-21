@@ -16,6 +16,20 @@ Generally, you want to specify which of the [supported drivers](drivers.md) you 
 
 In below example, we install with the **Psycopg3** driver, so we run
 
+### Stable
+
+```bash
+pip3 install dbworkload[postgres]==0.6.5
+```
+
+### Latest
+
+The latest version features:
+
+- Schedule
+- `--max-rate`
+- adding/removing connections at runtime
+
 ```bash
 pip3 install dbworkload[postgres]
 ```
@@ -23,7 +37,5 @@ pip3 install dbworkload[postgres]
 Confirm installation is successful by running
 
 ```bash
-$ dbworkload --version
-dbworkload : 0.5.1
-Python     : 3.11.3
+dbworkload --version
 ```
