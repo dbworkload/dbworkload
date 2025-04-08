@@ -962,18 +962,141 @@ def replace_placeholders(sql, all_schemas):
     # Replace the entire VALUES(...) with corrected placeholders
     sql = re.sub(r'\((.*)\)(.*VALUES\s*)\((.*)\)(\s+RETURNING|\s*;|$)', replace_values, sql, flags=re.IGNORECASE)
 
-    sql = extract_where_conditions(sql, schemas)
+    sql = replace_tokens(sql, schemas)
     sql = extract_set_conditions(sql, schemas)
-    sql = extract_limit(sql)
     sql = extract_system_time(sql)
     return sql
 
+def replace_tokens(sql, schemas):
+    # Parse the query
+    query = sqlparse.parse(sql)[0]
+    statement = ''
+    query_index = 0
+    # Extract where conditions from the query
+    while query_index < len(query.tokens):
+        token = query.tokens[query_index]
+        print(token, type(token))
+        if type(token)==sqlparse.sql.Where:
+            where_statement, query_index = process_where_token(token, schemas, query_index)
+            statement += where_statement
+        elif type(token) == sqlparse.sql.Token and token.value.strip() == 'LIMIT':
+            query_index += 1
+            statement += token.value
+            while query_index < len(query.tokens) and query.tokens[query_index].is_whitespace:
+                query_index += 1
+                statement += ' ' # exhausted all whitespaces
+            query_index += 1
+            statement += str(random.randint(1, 100))
+        else:
+            query_index += 1
+            statement += token.value
+    return statement
 
-def extract_limit(sql):
-    limit_amount = random.randint(1, 100)
-    # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(\s+LIMIT\s+)(_)', f' LIMIT {limit_amount}', sql, flags=re.IGNORECASE)
+def process_where_token(where_token, schemas, query_index):
+    parts = []
+    index = 1  # Skip the initial "WHERE" keyword token
+    while index < len(where_token.tokens):
+        condition, index = extract_where_condition(where_token.tokens, index, schemas)
+        parts.append(condition)
+    return where_token.tokens[0].value + "".join(parts), query_index+1
 
+def extract_where_condition(tokens, idx, schemas):
+    token = tokens[idx]
+    if isinstance(token, sqlparse.sql.Identifier):
+        return process_identifier_token(tokens, idx, schemas)
+    elif token.ttype is not None and (token.value in [' ', '(', ')'] or token.is_keyword):
+        return token.value, idx + 1
+    elif isinstance(token, sqlparse.sql.Comparison):
+        return process_comparison_token(token, schemas), idx + 1
+    elif isinstance(token, sqlparse.sql.Parenthesis):
+        return process_parenthesis_token(token, tokens, idx, schemas)
+    else:
+        # Fallback for any other token types
+        return token.value, idx + 1
+
+def process_identifier_token(tokens, idx, schemas):
+    token = tokens[idx]
+    condition = token.value
+    new_index = idx + 1
+    while new_index < len(tokens) and tokens[new_index].is_whitespace:
+        condition += " "
+        new_index += 1
+    if new_index < len(tokens) and tokens[new_index].value.strip().upper() == "IN":
+        condition += tokens[new_index].value
+        new_index += 1
+        while new_index < len(tokens) and tokens[new_index].is_whitespace:
+            condition += " "
+            new_index += 1
+        if (new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis) and 
+           len(tokens[new_index].tokens) > 1 and isinstance(tokens[new_index].tokens[1], sqlparse.sql.IdentifierList)):
+            condition += f"({get_field_column(schemas, token.value)}, {get_field_column(schemas, token.value)})"
+            return condition, new_index + 1
+        elif (new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis) and
+              len(tokens[new_index].tokens) > 1 and tokens[new_index].tokens[1].is_keyword):
+            return f'{condition}({replace_tokens(tokens[new_index].value[1:-1], schemas)})', new_index + 1
+
+    if new_index < len(tokens) and tokens[new_index].value.strip().upper() == "BETWEEN":
+        condition += tokens[new_index].value
+        new_index += 1
+        while new_index < len(tokens) and tokens[new_index].is_whitespace:
+            condition += " "
+            new_index += 1
+        if new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis):
+            condition += f"({get_field_column(schemas, token.value)})"
+            new_index += 1
+            while new_index < len(tokens) and (tokens[new_index].is_whitespace or 
+                  (hasattr(tokens[new_index], "value") and tokens[new_index].value.strip() == "AND")):
+                condition += tokens[new_index].value
+                new_index += 1
+            if new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis):
+                condition += f"({get_field_column(schemas, token.value)})"
+                return condition, new_index + 1
+    return condition, new_index
+
+def process_comparison_token(token, schemas):
+    key, operator, value = re.split(r"((?:=|<|>|<=|>=|!=|LIKE)\s*)", token.value, maxsplit=1)
+    if "_::INTERVAL" in value:
+        field = re.sub(r"TIMESTAMP(TZ)?", "INTERVAL", get_field_column(schemas, key.strip()))
+        new_val = value.replace("_::INTERVAL", f"{field}::INTERVAL")
+        return f"{key}{operator.strip()}{new_val}"
+    elif value.startswith("(") and value.endswith(")"):
+        return f'{key}{operator.strip()}({replace_tokens(value[1:-1], schemas)})'
+    else:
+        new_val = re.sub(r"(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])", get_field_column(schemas, key.strip()), value)
+        return f"{key}{operator}{new_val}"
+
+def process_parenthesis_token(token, parent_tokens, parent_index, schemas):
+    if len(token.tokens) > 1 and isinstance(token.tokens[1], sqlparse.sql.IdentifierList):
+        condition = token.tokens[0].value  # Opening parenthesis
+        sub_index = 1
+        fields = [field.strip() for field in token.tokens[1].value.split(",")]
+        condition += token.tokens[sub_index].value
+        sub_index += 1
+        condition += token.tokens[sub_index].value  # Add keyword after identifier list
+        new_index = parent_index + 1
+        while new_index < len(parent_tokens) and parent_tokens[new_index].is_whitespace:
+            condition += " "
+            new_index += 1
+        if new_index < len(parent_tokens) and parent_tokens[new_index].value.strip().upper() == "IN":
+            condition += parent_tokens[new_index].value
+            new_index += 1
+        while new_index < len(parent_tokens) and parent_tokens[new_index].is_whitespace:
+            condition += " "
+            new_index += 1
+        if new_index < len(parent_tokens) and isinstance(parent_tokens[new_index], sqlparse.sql.Parenthesis):
+            mapped_fields = ", ".join(
+                f"({get_field_column(schemas, field)}, {get_field_column(schemas, field)})" 
+                for field in fields
+            )
+            condition += f"({mapped_fields})"
+            return condition, new_index + 1
+    else:
+        index = 1
+        inner_conditions = "("
+        while index < len(token.tokens):
+            cond, index = extract_where_condition(token.tokens, index, schemas)
+            inner_conditions += cond
+        return inner_conditions, parent_index + 1
 
 def extract_system_time(sql):
     system_time = get_system_time()
@@ -1032,164 +1155,6 @@ def extract_set_conditions(sql, schemas):
     return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE|\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s*;|$)',
                   replace_set_clause, sql, flags=re.IGNORECASE)
 
-
-def extract_where_conditions(sql, schemas):
-    """
-    Extracts and parses the WHERE clause conditions from an SQL statement,
-    stopping at termination conditions like ORDER BY, GROUP BY, LIMIT.
-    Returns a list of conditions as tuples (left_operand, operator, right_operand).
-    Properly handles nested parentheses in subqueries.
-    """
-    import re
-
-    def replace_where_clause(where_match):
-        where_clause = where_match.group(2).strip()
-
-        # Handle parentheses properly by tracking nested levels
-        conditions = []
-        i = 0
-        current_condition = ""
-        paren_level = 0
-
-        # Split into conditions while respecting parentheses nesting
-        while i < len(where_clause):
-            char = where_clause[i]
-
-            # Track parentheses nesting level
-            if char == '(':
-                paren_level += 1
-                current_condition += char
-            elif char == ')':
-                paren_level -= 1
-                current_condition += char
-            # Only split on AND/OR at the top level (paren_level == 0)
-            elif paren_level == 0 and i + 3 <= len(where_clause) and where_clause[i:i + 3].upper() == 'AND':
-                if current_condition.strip():
-                    conditions.append((current_condition.strip(),))
-                conditions.append(('AND',))
-                current_condition = ""
-                i += 2  # Skip "AND"
-            elif paren_level == 0 and i + 2 <= len(where_clause) and where_clause[i:i + 2].upper() == 'OR':
-                if current_condition.strip():
-                    conditions.append((current_condition.strip(),))
-                conditions.append(('OR',))
-                current_condition = ""
-                i += 1  # Skip "OR"
-            else:
-                current_condition += char
-
-            i += 1
-
-        # Add the last condition if there is one
-        if current_condition.strip():
-            conditions.append((current_condition.strip(),))
-
-        # Process each condition
-        processed_conditions = []
-        for condition_tuple in conditions:
-            condition = condition_tuple[0]
-
-            # Skip logical operators (already handled)
-            if condition in ('AND', 'OR'):
-                processed_conditions.append(condition)
-                continue
-
-            # Handle parenthesized conditions
-            if condition.startswith('(') and condition.endswith(')') and not _is_operator_inside(condition):
-                # Recursively process the inner condition while preserving parentheses
-                inner_condition = condition[1:-1].strip()
-                processed_conditions.append(f"({_process_single_condition(inner_condition, schemas)})")
-            else:
-                processed_conditions.append(_process_single_condition(condition, schemas))
-
-        # Join all processed conditions
-        result = ' '.join(processed_conditions)
-        return f'{where_match.group(1)} {result}{where_match.group(3)}'
-
-    def _is_operator_inside(condition):
-        """Check if there's an operator inside the parentheses at the top level."""
-        # Remove the outer parentheses
-        inner = condition[1:-1].strip()
-        paren_level = 0
-
-        for i in range(len(inner)):
-            char = inner[i]
-            if char == '(':
-                paren_level += 1
-            elif char == ')':
-                paren_level -= 1
-            # Look for operators at the top level
-            elif paren_level == 0:
-                # Check for common SQL operators
-                operators = ['=', '<', '>', '<=', '>=', '!=', ' BETWEEN ', ' LIKE ', ' IN ']
-                for op in operators:
-                    if i + len(op) <= len(inner) and inner[i:i + len(op)].upper() == op.upper():
-                        return True
-
-        return False
-
-    def _process_single_condition(condition, schemas):
-        """Process a single condition by parsing its components."""
-        # Handle special case for logical operators
-        if condition in ('AND', 'OR'):
-            return condition
-
-        # Look for SQL operators
-        operator_pattern = r'\s*(=|<|>|<=|>=|!=|BETWEEN|LIKE|IN)\s*'
-        parts = re.split(operator_pattern, condition, maxsplit=1, flags=re.IGNORECASE)
-
-        if len(parts) < 3:
-            # This might be a complex condition or doesn't match our pattern
-            return condition
-
-        left_operand, operator, right_operand = parts
-        left_operand = left_operand.strip()
-        operator = operator.strip().upper()
-        right_operand = right_operand.strip()
-
-        # Process fields
-        fields = [f.strip() for f in left_operand.replace('(', '').replace(')', '').split(',')]
-        first_field = get_field_column(schemas, fields[0]) if fields else ""
-
-        # Handle different operators
-        if operator == "IN":
-            if right_operand.strip().lower().startswith("(select"):
-                # Handle subquery: preserve the outer parentheses
-                inner_query = right_operand[1:-1] if right_operand.startswith('(') and right_operand.endswith(
-                    ')') else right_operand
-                # Process the subquery
-                processed_subquery = extract_where_conditions(inner_query, schemas)
-                # Re-wrap in parentheses
-                right_operand = f"({processed_subquery})"
-            else:
-                # Handle IN with literal values
-                if len(fields) == 1:
-                    col_type = first_field
-                    right_operand = f'({col_type}, {col_type})'
-                else:
-                    right_operand = ', '.join(
-                        [f'({get_field_column(schemas, field)}, {get_field_column(schemas, field)})' for field in
-                         fields])
-        elif operator == "BETWEEN":
-            right_operand = right_operand.replace("_ - _", first_field)
-        else:
-            if "_::INTERVAL" in right_operand:
-                field = re.sub(r'TIMESTAMP(TZ)?', 'INTERVAL', first_field)
-                right_operand = right_operand.replace("_::INTERVAL", f'{field}::INTERVAL')
-            else:
-                right_operand = right_operand.replace("__more__", first_field)
-                right_operand = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', first_field, right_operand)
-
-        return f"{left_operand} {operator} {right_operand}"
-
-    # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(
-        r'(WHERE\s+)(.+?)(\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s+RETURNING|\s*;|$)',
-        replace_where_clause,
-        sql,
-        flags=re.IGNORECASE
-    )
-
 def get_field_column(schemas, field):
     for schema in schemas:
         if field in schema.columns:
@@ -1236,16 +1201,16 @@ def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url, anonymize)
     # Generate the CSV file.
     # TODO: We should parameterize the values we're passing in below, so that
     #  users can set them themselves.
-    util_csv(yaml_file_name,
-             db_name,
-             "",
-             1,
-             1000000,
-             "\t",
-             "localhost",
-             26257,
-             cloud_storage_uri,
-             cluster_url)
+    # util_csv(yaml_file_name,
+    #          db_name,
+    #          "",
+    #          1,
+    #          1000000,
+    #          "\t",
+    #          "localhost",
+    #          26257,
+    #          cloud_storage_uri,
+    #          cluster_url)
 
     generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir, mapping)
     util_gen_stub(PosixPath(sql_file_name))
