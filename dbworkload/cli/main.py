@@ -298,6 +298,7 @@ def load_schedule(schedule_path: str):
             except:
                 logger.error(f"couldn't decode {schedule_path} as JSON")
 
+
 def _version_callback(value: bool) -> None:
     if value:
         typer.echo(f"dbworkload : {__version__}")

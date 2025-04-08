@@ -354,7 +354,8 @@ def ddl_to_yaml(ddl: str):
     def get_type_and_args(col_type_and_args: list):
         is_not_null = False
         if any("not" in element.lower() for element in col_type_and_args) and any(
-                "null" in element.lower() for element in col_type_and_args):
+            "null" in element.lower() for element in col_type_and_args
+        ):
             is_not_null = True
         # check if it is an array
         # string array
@@ -363,9 +364,9 @@ def ddl_to_yaml(ddl: str):
         is_array = False
         col_type_and_args = [x.lower() for x in col_type_and_args]
         if (
-                "[]" in col_type_and_args[0]
-                or "array" in col_type_and_args
-                or "[]" in col_type_and_args
+            "[]" in col_type_and_args[0]
+            or "array" in col_type_and_args
+            or "[]" in col_type_and_args
         ):
             is_array = True
 
@@ -399,14 +400,14 @@ def ddl_to_yaml(ddl: str):
             "integer",
         ]:
             if datatype.lower() in ["int2", "smallint"]:
-                int_min = -(2 ** 15) + 1
-                int_max = 2 ** 15 - 1
+                int_min = -(2**15) + 1
+                int_max = 2**15 - 1
             elif datatype.lower() == "int4":
-                int_min = -(2 ** 31) + 1
-                int_max = 2 ** 31 - 1
+                int_min = -(2**31) + 1
+                int_max = 2**31 - 1
             else:
-                int_min = -(2 ** 63) + 1
-                int_max = 2 ** 63 - 1
+                int_min = -(2**63) + 1
+                int_max = 2**63 - 1
 
             return {
                 "type": "integer",
@@ -614,7 +615,7 @@ def ddl_to_yaml(ddl: str):
             sys.exit(1)
 
     def get_table_name_and_table_list(
-            create_table_stmt: str, sort_by: list, count: int = 1000000
+        create_table_stmt: str, sort_by: list, count: int = 1000000
     ):
         # find CREATE TABLE opening parenthesis
         p1 = create_table_stmt.find("(")
@@ -631,7 +632,7 @@ def ddl_to_yaml(ddl: str):
 
         # extract column definitions (within parentheses part)
         # eg: id uuid primary key, s string(30)
-        col_def_str = create_table_stmt[p1 + 1: p1 + i].strip()
+        col_def_str = create_table_stmt[p1 + 1 : p1 + i].strip()
 
         # find table name (before parenthesis part)
         for i in create_table_stmt[:p1].split():
@@ -686,8 +687,9 @@ def ddl_to_yaml(ddl: str):
             # Combine tokens into a single string.
             col_def_str = " ".join(col_name_and_type).lower()
             # Check if any reserved phrase appears in the combined string.
-            if col_name_and_type[0].lower() not in RESERVED_WORDS and \
-                    not any(phrase in col_def_str for phrase in RESERVED_WORDS_ANYWHERE):
+            if col_name_and_type[0].lower() not in RESERVED_WORDS and not any(
+                phrase in col_def_str for phrase in RESERVED_WORDS_ANYWHERE
+            ):
                 ll.append(col_name_and_type)
 
         table_list = []
@@ -717,7 +719,7 @@ def ddl_to_yaml(ddl: str):
 
             if i < 0:
                 break
-            ddl = ddl[:i] + ddl[j + 2:]
+            ddl = ddl[:i] + ddl[j + 2 :]
 
         # given the whole ddl string,
         # line by line, remove empty lines and
@@ -787,18 +789,18 @@ def get_threads_per_proc(procs: int, threads: int):
 
 
 def get_import_stmts(
-        csv_files: list,
-        table_name: str,
-        http_server_hostname: str = "myhost",
-        http_server_port: str = "3000",
-        delimiter: str = "",
-        nullif: str = "",
-        uri: str = "",
+    csv_files: list,
+    table_name: str,
+    http_server_hostname: str = "myhost",
+    http_server_port: str = "3000",
+    delimiter: str = "",
+    nullif: str = "",
+    uri: str = "",
 ):
     def chunks(lst, n):
         """Yield successive n-sized chunks from lst."""
         for i in range(0, len(lst), n):
-            yield lst[i: i + n]
+            yield lst[i : i + n]
 
     chunk_gen = chunks(csv_files, 20)
     stmts = []

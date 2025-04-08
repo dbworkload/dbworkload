@@ -37,16 +37,16 @@ logger.setLevel(logging.INFO)
 
 
 def util_csv(
-        input: PosixPath,
-        output: PosixPath,
-        compression: str,
-        procs: int,
-        csv_max_rows: int,
-        delimiter: str,
-        http_server_hostname: str,
-        http_server_port: str,
-        cloud_storage_uri: str,
-        cluster_url: str,
+    input: PosixPath,
+    output: PosixPath,
+    compression: str,
+    procs: int,
+    csv_max_rows: int,
+    delimiter: str,
+    http_server_hostname: str,
+    http_server_port: str,
+    cloud_storage_uri: str,
+    cluster_url: str,
 ):
     """Wrapper around SimpleFaker to create CSV datasets
     given an input YAML data gen definition file
@@ -64,7 +64,9 @@ def util_csv(
     if os.path.isdir(output_dir):
         os.rename(
             output_dir,
-            str(output_dir) + "." + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
+            str(output_dir)
+            + "."
+            + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
         )
 
     # create new directory
@@ -84,10 +86,14 @@ def util_csv(
 
     if "gs://" in cloud_storage_uri:
         try:
-            print("Attempting to upload files from ", output_dir, " to ", cloud_storage_uri)
+            print(
+                "Attempting to upload files from ",
+                output_dir,
+                " to ",
+                cloud_storage_uri,
+            )
             subprocess.run(
-                ['gsutil', '-m', 'cp', '-r', output_dir, cloud_storage_uri],
-                check=True
+                ["gsutil", "-m", "cp", "-r", output_dir, cloud_storage_uri], check=True
             )
             print(f"Successfully uploaded {output_dir} to {cloud_storage_uri}")
 
@@ -95,18 +101,18 @@ def util_csv(
                 print("Attempting to IMPORT data")
                 for table_name in load.keys():
                     for s in dbworkload.utils.common.get_import_stmts(
-                            [x for x in csv_files if x.startswith(table_name)],
-                            table_name,
-                            "",
-                            "",
-                            delimiter,
-                            "",
-                            cloud_storage_uri + "/" + str(output_dir),
+                        [x for x in csv_files if x.startswith(table_name)],
+                        table_name,
+                        "",
+                        "",
+                        delimiter,
+                        "",
+                        cloud_storage_uri + "/" + str(output_dir),
                     ):
                         print("running cockroach to upload")
                         subprocess.run(
-                            ['cockroach', 'sql', '--url', cluster_url, '-e', s],
-                            check=True
+                            ["cockroach", "sql", "--url", cluster_url, "-e", s],
+                            check=True,
                         )
             except subprocess.CalledProcessError as err:
                 print(f"Error during IMPORT: {err}")
@@ -118,13 +124,13 @@ def util_csv(
             print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
 
             for s in dbworkload.utils.common.get_import_stmts(
-                    [x for x in csv_files if x.startswith(table_name)],
-                    table_name,
-                    http_server_hostname,
-                    http_server_port,
-                    delimiter,
-                    "",
-                    "",
+                [x for x in csv_files if x.startswith(table_name)],
+                table_name,
+                http_server_hostname,
+                http_server_port,
+                delimiter,
+                "",
+                "",
             ):
                 print(s, "\n")
 
@@ -145,7 +151,12 @@ def util_yaml(input: PosixPath, output: PosixPath):
 
     # backup the current file as to not override
     if os.path.exists(output):
-        os.rename(output, str(output) + "." + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"))
+        os.rename(
+            output,
+            str(output)
+            + "."
+            + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S"),
+        )
 
     # create new file
     with open(output, "w") as f:
@@ -157,7 +168,7 @@ def util_merge_sort(input_dir: str, output_dir: str, csv_max_rows: int, compress
 
     class MergeSort:
         def __init__(
-                self, input_dir: str, output_dir: str, csv_max_rows: int, compress: bool
+            self, input_dir: str, output_dir: str, csv_max_rows: int, compress: bool
         ):
             # input CSV files - it assumes files are already sorted
             files = os.listdir(input_dir)
@@ -572,7 +583,7 @@ def util_merge_csvs(input_dir: str):
     # calculate mean and quantiles and convert from seconds to millis
     df["mean_ms"] = df["centroids"].map(
         lambda x: TDigest(compression=1000).of_centroids(x, compression=1000).mean
-                  * 1000
+        * 1000
     )
     df[["p50_ms", "p90_ms", "p95_ms", "p99_ms", "max_ms"]] = [
         x * 1000
@@ -630,7 +641,7 @@ def util_gen_stub(input_file: PosixPath):
         j = content.find("*/")
         if i < 0:
             break
-        content = content[:i] + content[j + 2:]
+        content = content[:i] + content[j + 2 :]
 
     # Remove line comments (--) and empty lines
     cleaned_lines = []
@@ -679,8 +690,10 @@ def util_gen_stub(input_file: PosixPath):
     model["txn_count"] = len(transactions)
     model["name"] = input_file.name.split(".")[0].capitalize()
     model["txns"] = [
-        sqlparse.format(re.sub(r":-:\|.*?\|:-:", "%s", txn), reindent=True, keyword_case="upper") for txn in
-        transactions
+        sqlparse.format(
+            re.sub(r":-:\|.*?\|:-:", "%s", txn), reindent=True, keyword_case="upper"
+        )
+        for txn in transactions
     ]
 
     txn_type = []
@@ -689,7 +702,7 @@ def util_gen_stub(input_file: PosixPath):
         txn_type.append(
             txn.lower().startswith("select") or txn.lower().find("returning") > 0
         )
-        statements = txn.split(';')
+        statements = txn.split(";")
         stmt_placeholder = []
         for stmt in statements:
             placeholders = re.findall(r":-:\|(.*?)\|:-:", stmt)
@@ -703,7 +716,9 @@ def util_gen_stub(input_file: PosixPath):
     logger.info(f"Saved stub '{out}'")
 
 
-def generate_workload(zip_content_location, all_schemas, db_name, output_file_location, mapping):
+def generate_workload(
+    zip_content_location, all_schemas, db_name, output_file_location, mapping
+):
     """
     Reads a TSV file named 'crdb_internal.node_statement_statistics.txt' from each numeric node directory
     under zip_content_location/nodes (starting at 1), stopping when a directory doesn't exist.
@@ -733,10 +748,12 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
             raise FileNotFoundError(f"Could not find TSV file: {file_path}")
 
         with open(file_path, mode="r", newline="", encoding="utf-8") as tsv_file:
-            reader = csv.reader(tsv_file, delimiter='\t', quotechar='"')
+            reader = csv.reader(tsv_file, delimiter="\t", quotechar='"')
             header = next(reader, None)
             if not header:
-                raise ValueError(f"TSV file is empty or missing a header row: {file_path}")
+                raise ValueError(
+                    f"TSV file is empty or missing a header row: {file_path}"
+                )
 
             # Map column names to indices, mapping.
             column_index = {col: i for i, col in enumerate(header)}
@@ -750,21 +767,29 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
             ]
             for col in required_columns:
                 if col not in column_index:
-                    raise ValueError(f"Missing expected column '{col}' in TSV header of file: {file_path}")
+                    raise ValueError(
+                        f"Missing expected column '{col}' in TSV header of file: {file_path}"
+                    )
 
             # Process each row.
             for row in reader:
-                if row[column_index["database_name"]] == db_name and \
-                        "job id=" not in row[column_index["application_name"]]:
+                if (
+                    row[column_index["database_name"]] == db_name
+                    and "job id=" not in row[column_index["application_name"]]
+                ):
                     txn_id = row[column_index["txn_fingerprint_id"]]
                     if mapping:
-                        anon_stmt = anonymize_sql_statement(row[column_index["key"]], mapping)
+                        anon_stmt = anonymize_sql_statement(
+                            row[column_index["key"]], mapping
+                        )
                         key_val = replace_placeholders(anon_stmt, all_schemas)
                     else:
-                        key_val = replace_placeholders(row[column_index["key"]], all_schemas)
-                    if re.search(r'\b(IFNULL|DEALLOCATE|WHEN)\b', key_val):
-                        # TODO - not handled
-                        continue
+                        key_val = replace_placeholders(
+                            row[column_index["key"]], all_schemas
+                        )
+                    # if re.search(r"\b(IFNULL|DEALLOCATE|WHEN)\b", key_val):
+                    #     # TODO - not handled
+                    #     continue
 
                     if txn_id in grouped_keys:
                         # Only add key values from the same node where this txn_id was first encountered.
@@ -786,7 +811,9 @@ def generate_workload(zip_content_location, all_schemas, db_name, output_file_lo
                 out_file.write(key + ";\n")
             out_file.write("COMMIT;\n-------End Transaction-------\n\n\n")
 
-    print(f"Successfully wrote {len(grouped_keys)} workload statements to {output_path}")
+    print(
+        f"Successfully wrote {len(grouped_keys)} workload statements to {output_path}"
+    )
     return grouped_keys
 
 
@@ -807,47 +834,100 @@ def anonymize_sql_statement(sql_statement, mapping):
     anonymized_sql = sql_statement
 
     # Step 1: Anonymize table names
-    for original_table, anon_table in mapping['tables'].items():
-        simple_name = original_table.split('.')[-1]
+    for original_table, anon_table in mapping["tables"].items():
+        simple_name = original_table.split(".")[-1]
 
         # Replace table references with word boundaries
         anonymized_sql = re.sub(
-            r'\bFROM\s+' + re.escape(simple_name) + r'\b',
-            f'FROM {anon_table}',
+            r"\bFROM\s+" + re.escape(simple_name) + r"\b",
+            f"FROM {anon_table}",
             anonymized_sql,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
 
         anonymized_sql = re.sub(
-            r'\bJOIN\s+' + re.escape(simple_name) + r'\b',
-            f'JOIN {anon_table}',
+            r"\bJOIN\s+" + re.escape(simple_name) + r"\b",
+            f"JOIN {anon_table}",
             anonymized_sql,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
 
         anonymized_sql = re.sub(
-            r'\bUPDATE\s+' + re.escape(simple_name) + r'\b',
-            f'UPDATE {anon_table}',
+            r"\bUPDATE\s+" + re.escape(simple_name) + r"\b",
+            f"UPDATE {anon_table}",
             anonymized_sql,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
 
         anonymized_sql = re.sub(
-            r'\bINSERT\s+INTO\s+' + re.escape(simple_name) + r'\b',
-            f'INSERT INTO {anon_table}',
+            r"\bINSERT\s+INTO\s+" + re.escape(simple_name) + r"\b",
+            f"INSERT INTO {anon_table}",
             anonymized_sql,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
 
     # Step 2: Create a comprehensive list of words to avoid replacing
     avoid_words = {
-        "select", "from", "where", "group", "order", "by", "having", "limit",
-        "insert", "update", "delete", "set", "into", "values", "returning",
-        "join", "inner", "outer", "left", "right", "full", "on", "using",
-        "union", "all", "intersect", "except", "case", "when", "then", "else", "end",
-        "and", "or", "not", "null", "true", "false", "is", "in", "between", "like",
-        "as", "of", "system", "time", "distinct", "exists", "any", "some", "offset",
-        "asc", "desc", "interval", "count", "sum", "avg", "min", "max", "now",
+        "select",
+        "from",
+        "where",
+        "group",
+        "order",
+        "by",
+        "having",
+        "limit",
+        "insert",
+        "update",
+        "delete",
+        "set",
+        "into",
+        "values",
+        "returning",
+        "join",
+        "inner",
+        "outer",
+        "left",
+        "right",
+        "full",
+        "on",
+        "using",
+        "union",
+        "all",
+        "intersect",
+        "except",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "and",
+        "or",
+        "not",
+        "null",
+        "true",
+        "false",
+        "is",
+        "in",
+        "between",
+        "like",
+        "as",
+        "of",
+        "system",
+        "time",
+        "distinct",
+        "exists",
+        "any",
+        "some",
+        "offset",
+        "asc",
+        "desc",
+        "interval",
+        "count",
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "now",
     }
 
     # Step 3: Determine the primary table
@@ -855,58 +935,66 @@ def anonymize_sql_statement(sql_statement, mapping):
 
     # Look for table patterns
     for pattern in [
-        r'\bFROM\s+([^\s,();]+)',
-        r'\bUPDATE\s+([^\s,();]+)',
-        r'\bINSERT\s+INTO\s+([^\s,();]+)'
+        r"\bFROM\s+([^\s,();]+)",
+        r"\bUPDATE\s+([^\s,();]+)",
+        r"\bINSERT\s+INTO\s+([^\s,();]+)",
     ]:
         match = re.search(pattern, anonymized_sql, re.IGNORECASE)
         if match:
             table_ref = match.group(1)
             # Find the matching original table
-            for original_table in mapping['tables']:
-                if original_table.split('.')[-1] == table_ref or mapping['tables'][original_table] == table_ref:
+            for original_table in mapping["tables"]:
+                if (
+                    original_table.split(".")[-1] == table_ref
+                    or mapping["tables"][original_table] == table_ref
+                ):
                     primary_table = original_table
                     break
             if primary_table:
                 break
 
     # Step 4: Handle INSERT columns specifically
-    if primary_table and 'INSERT INTO' in anonymized_sql.upper():
-        insert_match = re.search(r'INSERT\s+INTO\s+[^\s(]+\s*\(([^)]+)\)', anonymized_sql, re.IGNORECASE)
+    if primary_table and "INSERT INTO" in anonymized_sql.upper():
+        insert_match = re.search(
+            r"INSERT\s+INTO\s+[^\s(]+\s*\(([^)]+)\)", anonymized_sql, re.IGNORECASE
+        )
 
         if insert_match:
             columns_str = insert_match.group(1)
-            columns = [col.strip() for col in columns_str.split(',')]
+            columns = [col.strip() for col in columns_str.split(",")]
 
             # Use primary table's column mapping
             anonymized_columns = []
             for col in columns:
-                if primary_table in mapping['columns'] and col in mapping['columns'][primary_table]:
-                    anonymized_columns.append(mapping['columns'][primary_table][col])
+                if (
+                    primary_table in mapping["columns"]
+                    and col in mapping["columns"][primary_table]
+                ):
+                    anonymized_columns.append(mapping["columns"][primary_table][col])
                 else:
                     # If not found in primary table, check other tables
                     found = False
-                    for table in mapping['columns']:
-                        if col in mapping['columns'][table]:
-                            anonymized_columns.append(mapping['columns'][table][col])
+                    for table in mapping["columns"]:
+                        if col in mapping["columns"][table]:
+                            anonymized_columns.append(mapping["columns"][table][col])
                             found = True
                             break
                     if not found:
                         anonymized_columns.append(col)
 
             # Replace the column list
-            new_columns_str = ', '.join(anonymized_columns)
+            new_columns_str = ", ".join(anonymized_columns)
             anonymized_sql = re.sub(
-                r'(INSERT\s+INTO\s+[^\s(]+\s*\()([^)]+)(\))',
-                r'\1' + new_columns_str + r'\3',
+                r"(INSERT\s+INTO\s+[^\s(]+\s*\()([^)]+)(\))",
+                r"\1" + new_columns_str + r"\3",
                 anonymized_sql,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
 
     # Step 5: For each table in the mapping, explicitly replace its columns
     processed_columns = set()
 
-    for table_name, table_columns in mapping['columns'].items():
+    for table_name, table_columns in mapping["columns"].items():
         for original_col, anon_col in table_columns.items():
             # Skip if already processed or if it's a word to avoid
             if original_col in processed_columns or original_col.lower() in avoid_words:
@@ -914,24 +1002,21 @@ def anonymize_sql_statement(sql_statement, mapping):
 
             # Use word boundaries to replace only whole words
             anonymized_sql = re.sub(
-                r'\b' + re.escape(original_col) + r'\b',
-                anon_col,
-                anonymized_sql
+                r"\b" + re.escape(original_col) + r"\b", anon_col, anonymized_sql
             )
 
             processed_columns.add(original_col)
 
     # Step 6: Special handling for specific keywords that should not be anonymized
-    for keyword in ['valid', 'INTERVAL', 'TIMESTAMPTZ', 'LIMIT']:
+    for keyword in ["valid", "INTERVAL", "TIMESTAMPTZ", "LIMIT"]:
         # If the keyword was accidentally anonymized, restore it
         for anon_col in processed_columns:
             anonymized_sql = re.sub(
-                r'\b' + re.escape(anon_col) + r'\b' + keyword,
-                keyword,
-                anonymized_sql
+                r"\b" + re.escape(anon_col) + r"\b" + keyword, keyword, anonymized_sql
             )
 
     return anonymized_sql
+
 
 def replace_placeholders(sql, all_schemas):
     """
@@ -949,42 +1034,54 @@ def replace_placeholders(sql, all_schemas):
 
     def replace_values(values_match):
         values_content = values_match.group(1)  # Extract content inside VALUES(...)
-        fields = [f.strip() for f in values_content.split(',')]  # Split by comma and trim spaces
+        fields = [
+            f.strip() for f in values_content.split(",")
+        ]  # Split by comma and trim spaces
 
         expanded_values = []
         for field in fields:
             expanded_values.append(get_field_column(schemas, field))
 
         # Generate the correct VALUES clause
-        placeholders = ', '.join(expanded_values)
-        return f'({values_match.group(1)}){values_match.group(2)} ({placeholders}){values_match.group(4)}'
+        placeholders = ", ".join(expanded_values)
+        return f"({values_match.group(1)}){values_match.group(2)} ({placeholders}){values_match.group(4)}"
 
     # Replace the entire VALUES(...) with corrected placeholders
-    sql = re.sub(r'\((.*)\)(.*VALUES\s*)\((.*)\)(\s+RETURNING|\s*;|$)', replace_values, sql, flags=re.IGNORECASE)
+    sql = re.sub(
+        r"\((.*)\)(.*VALUES\s*)\((.*)\)(\s+RETURNING|\s*;|$)",
+        replace_values,
+        sql,
+        flags=re.IGNORECASE,
+    )
 
     sql = replace_tokens(sql, schemas)
     sql = extract_set_conditions(sql, schemas)
     sql = extract_system_time(sql)
     return sql
 
+
 def replace_tokens(sql, schemas):
     # Parse the query
     query = sqlparse.parse(sql)[0]
-    statement = ''
+    statement = ""
     query_index = 0
     # Extract where conditions from the query
     while query_index < len(query.tokens):
         token = query.tokens[query_index]
-        print(token, type(token))
-        if type(token)==sqlparse.sql.Where:
-            where_statement, query_index = process_where_token(token, schemas, query_index)
+        if type(token) == sqlparse.sql.Where:
+            where_statement, query_index = process_where_token(
+                token, schemas, query_index
+            )
             statement += where_statement
-        elif type(token) == sqlparse.sql.Token and token.value.strip() == 'LIMIT':
+        elif type(token) == sqlparse.sql.Token and token.value.strip() == "LIMIT":
             query_index += 1
             statement += token.value
-            while query_index < len(query.tokens) and query.tokens[query_index].is_whitespace:
+            while (
+                query_index < len(query.tokens)
+                and query.tokens[query_index].is_whitespace
+            ):
                 query_index += 1
-                statement += ' ' # exhausted all whitespaces
+                statement += " "  # exhausted all whitespaces
             query_index += 1
             statement += str(random.randint(1, 100))
         else:
@@ -992,19 +1089,23 @@ def replace_tokens(sql, schemas):
             statement += token.value
     return statement
 
+
 def process_where_token(where_token, schemas, query_index):
     parts = []
     index = 1  # Skip the initial "WHERE" keyword token
     while index < len(where_token.tokens):
         condition, index = extract_where_condition(where_token.tokens, index, schemas)
         parts.append(condition)
-    return where_token.tokens[0].value + "".join(parts), query_index+1
+    return where_token.tokens[0].value + "".join(parts), query_index + 1
+
 
 def extract_where_condition(tokens, idx, schemas):
     token = tokens[idx]
     if isinstance(token, sqlparse.sql.Identifier):
         return process_identifier_token(tokens, idx, schemas)
-    elif token.ttype is not None and (token.value in [' ', '(', ')'] or token.is_keyword):
+    elif token.ttype is not None and (
+        token.value in [" ", "(", ")"] or token.is_keyword
+    ):
         return token.value, idx + 1
     elif isinstance(token, sqlparse.sql.Comparison):
         return process_comparison_token(token, schemas), idx + 1
@@ -1013,6 +1114,7 @@ def extract_where_condition(tokens, idx, schemas):
     else:
         # Fallback for any other token types
         return token.value, idx + 1
+
 
 def process_identifier_token(tokens, idx, schemas):
     token = tokens[idx]
@@ -1027,13 +1129,24 @@ def process_identifier_token(tokens, idx, schemas):
         while new_index < len(tokens) and tokens[new_index].is_whitespace:
             condition += " "
             new_index += 1
-        if (new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis) and 
-           len(tokens[new_index].tokens) > 1 and isinstance(tokens[new_index].tokens[1], sqlparse.sql.IdentifierList)):
+        if (
+            new_index < len(tokens)
+            and isinstance(tokens[new_index], sqlparse.sql.Parenthesis)
+            and len(tokens[new_index].tokens) > 1
+            and isinstance(tokens[new_index].tokens[1], sqlparse.sql.IdentifierList)
+        ):
             condition += f"({get_field_column(schemas, token.value)}, {get_field_column(schemas, token.value)})"
             return condition, new_index + 1
-        elif (new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis) and
-              len(tokens[new_index].tokens) > 1 and tokens[new_index].tokens[1].is_keyword):
-            return f'{condition}({replace_tokens(tokens[new_index].value[1:-1], schemas)})', new_index + 1
+        elif (
+            new_index < len(tokens)
+            and isinstance(tokens[new_index], sqlparse.sql.Parenthesis)
+            and len(tokens[new_index].tokens) > 1
+            and tokens[new_index].tokens[1].is_keyword
+        ):
+            return (
+                f"{condition}({replace_tokens(tokens[new_index].value[1:-1], schemas)})",
+                new_index + 1,
+            )
 
     if new_index < len(tokens) and tokens[new_index].value.strip().upper() == "BETWEEN":
         condition += tokens[new_index].value
@@ -1041,32 +1154,53 @@ def process_identifier_token(tokens, idx, schemas):
         while new_index < len(tokens) and tokens[new_index].is_whitespace:
             condition += " "
             new_index += 1
-        if new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis):
+        if new_index < len(tokens) and isinstance(
+            tokens[new_index], sqlparse.sql.Parenthesis
+        ):
             condition += f"({get_field_column(schemas, token.value)})"
             new_index += 1
-            while new_index < len(tokens) and (tokens[new_index].is_whitespace or 
-                  (hasattr(tokens[new_index], "value") and tokens[new_index].value.strip() == "AND")):
+            while new_index < len(tokens) and (
+                tokens[new_index].is_whitespace
+                or (
+                    hasattr(tokens[new_index], "value")
+                    and tokens[new_index].value.strip() == "AND"
+                )
+            ):
                 condition += tokens[new_index].value
                 new_index += 1
-            if new_index < len(tokens) and isinstance(tokens[new_index], sqlparse.sql.Parenthesis):
+            if new_index < len(tokens) and isinstance(
+                tokens[new_index], sqlparse.sql.Parenthesis
+            ):
                 condition += f"({get_field_column(schemas, token.value)})"
                 return condition, new_index + 1
     return condition, new_index
 
+
 def process_comparison_token(token, schemas):
-    key, operator, value = re.split(r"((?:=|<|>|<=|>=|!=|LIKE)\s*)", token.value, maxsplit=1)
+    key, operator, value = re.split(
+        r"((?:=|<|>|<=|>=|!=|LIKE)\s*)", token.value, maxsplit=1
+    )
     if "_::INTERVAL" in value:
-        field = re.sub(r"TIMESTAMP(TZ)?", "INTERVAL", get_field_column(schemas, key.strip()))
+        field = re.sub(
+            r"TIMESTAMP(TZ)?", "INTERVAL", get_field_column(schemas, key.strip())
+        )
         new_val = value.replace("_::INTERVAL", f"{field}::INTERVAL")
         return f"{key}{operator.strip()}{new_val}"
     elif value.startswith("(") and value.endswith(")"):
-        return f'{key}{operator.strip()}({replace_tokens(value[1:-1], schemas)})'
+        return f"{key}{operator.strip()}({replace_tokens(value[1:-1], schemas)})"
     else:
-        new_val = re.sub(r"(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])", get_field_column(schemas, key.strip()), value)
+        new_val = re.sub(
+            r"(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])",
+            get_field_column(schemas, key.strip()),
+            value,
+        )
         return f"{key}{operator}{new_val}"
 
+
 def process_parenthesis_token(token, parent_tokens, parent_index, schemas):
-    if len(token.tokens) > 1 and isinstance(token.tokens[1], sqlparse.sql.IdentifierList):
+    if len(token.tokens) > 1 and isinstance(
+        token.tokens[1], sqlparse.sql.IdentifierList
+    ):
         condition = token.tokens[0].value  # Opening parenthesis
         sub_index = 1
         fields = [field.strip() for field in token.tokens[1].value.split(",")]
@@ -1077,15 +1211,20 @@ def process_parenthesis_token(token, parent_tokens, parent_index, schemas):
         while new_index < len(parent_tokens) and parent_tokens[new_index].is_whitespace:
             condition += " "
             new_index += 1
-        if new_index < len(parent_tokens) and parent_tokens[new_index].value.strip().upper() == "IN":
+        if (
+            new_index < len(parent_tokens)
+            and parent_tokens[new_index].value.strip().upper() == "IN"
+        ):
             condition += parent_tokens[new_index].value
             new_index += 1
         while new_index < len(parent_tokens) and parent_tokens[new_index].is_whitespace:
             condition += " "
             new_index += 1
-        if new_index < len(parent_tokens) and isinstance(parent_tokens[new_index], sqlparse.sql.Parenthesis):
+        if new_index < len(parent_tokens) and isinstance(
+            parent_tokens[new_index], sqlparse.sql.Parenthesis
+        ):
             mapped_fields = ", ".join(
-                f"({get_field_column(schemas, field)}, {get_field_column(schemas, field)})" 
+                f"({get_field_column(schemas, field)}, {get_field_column(schemas, field)})"
                 for field in fields
             )
             condition += f"({mapped_fields})"
@@ -1098,17 +1237,22 @@ def process_parenthesis_token(token, parent_tokens, parent_index, schemas):
             inner_conditions += cond
         return inner_conditions, parent_index + 1
 
+
 def extract_system_time(sql):
     system_time = get_system_time()
     # Match WHERE clause and stop at termination keywords (ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(\s+OF SYSTEM TIME\s+)(_)', f' OF SYSTEM TIME \'-1s\'', sql, flags=re.IGNORECASE)
+    return re.sub(
+        r"(\s+OF SYSTEM TIME\s+)(_)", f" OF SYSTEM TIME '-1s'", sql, flags=re.IGNORECASE
+    )
 
 
 def get_system_time():
     minutes = random.randint(0, 59)
     seconds = random.randint(0, 59)
-    return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=minutes, seconds=seconds)).strftime(
-        '%Y-%m-%d %H:%M:%S')
+    return (
+        dt.datetime.now(dt.timezone.utc)
+        - dt.timedelta(minutes=minutes, seconds=seconds)
+    ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def extract_set_conditions(sql, schemas):
@@ -1117,27 +1261,29 @@ def extract_set_conditions(sql, schemas):
         set_str = set_match.group(3).strip()
 
         # Check if it is in the tuple form: (field1, field2) - (value1, value2)
-        tuple_form = re.match(r'^\((.*?)\)\s*[-=]\s*\((.*?)\)$', set_str)
+        tuple_form = re.match(r"^\((.*?)\)\s*[-=]\s*\((.*?)\)$", set_str)
         if tuple_form:
             fields_str = tuple_form.group(1).strip()
             values_str = tuple_form.group(2).strip()
 
-            fields = [f.strip() for f in fields_str.split(',')]
-            values = [v.strip() for v in values_str.split(',')]
+            fields = [f.strip() for f in fields_str.split(",")]
+            values = [v.strip() for v in values_str.split(",")]
             set_clause = []
             for field, value in zip(fields, values):
                 new_val = get_field_column(schemas, field)
                 if value is not None:
                     # Replace the value with the dynamic value from schemas (or any processing)
-                    new_val = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', new_val, value)
-                set_clause.append(f'{field} = {new_val}')
-            set_clause_str = ', '.join(set_clause)
+                    new_val = re.sub(
+                        r"(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])", new_val, value
+                    )
+                set_clause.append(f"{field} = {new_val}")
+            set_clause_str = ", ".join(set_clause)
         else:
             # Original "field=value" format (comma-separated)
             set_clause = []
-            set_pairs = [pair.strip() for pair in set_str.split(',')]
+            set_pairs = [pair.strip() for pair in set_str.split(",")]
             for set_pair in set_pairs:
-                kv = [x.strip() for x in set_pair.split('=')]
+                kv = [x.strip() for x in set_pair.split("=")]
                 if len(kv) != 2:
                     continue  # or raise an error if appropriate
                 field = kv[0]
@@ -1145,15 +1291,22 @@ def extract_set_conditions(sql, schemas):
                 new_val = get_field_column(schemas, field)
                 if value is not None:
                     # Replace the value with the dynamic value from schemas (or any processing)
-                    new_val = re.sub(r'(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])', new_val, value)
-                set_clause.append(f'{field} = {new_val}')
-            set_clause_str = ', '.join(set_clause)
+                    new_val = re.sub(
+                        r"(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])", new_val, value
+                    )
+                set_clause.append(f"{field} = {new_val}")
+            set_clause_str = ", ".join(set_clause)
 
-        return f'{set_match.group(1)}{set_match.group(2)}{set_clause_str}{set_match.group(4)}'
+        return f"{set_match.group(1)}{set_match.group(2)}{set_clause_str}{set_match.group(4)}"
 
     # Match SET clause and stop at termination keywords (WHERE, ORDER BY, GROUP BY, LIMIT, etc.)
-    return re.sub(r'(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE|\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s*;|$)',
-                  replace_set_clause, sql, flags=re.IGNORECASE)
+    return re.sub(
+        r"(UPDATE\s+[\w.]+)(\s+SET\s+)(.+?)(\s+WHERE|\s+ORDER BY|\s+GROUP BY|\s+LIMIT|\s*;|$)",
+        replace_set_clause,
+        sql,
+        flags=re.IGNORECASE,
+    )
+
 
 def get_field_column(schemas, field):
     for schema in schemas:
@@ -1164,10 +1317,16 @@ def get_field_column(schemas, field):
 
 def extract_table_names(statement):
     # Regular expressions to match different SQL statements
-    insert_pattern = re.compile(r'^INSERT INTO\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
-    select_pattern = re.compile(r'^SELECT\s+.*?\s+FROM\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
+    insert_pattern = re.compile(
+        r'^INSERT INTO\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE
+    )
+    select_pattern = re.compile(
+        r'^SELECT\s+.*?\s+FROM\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE
+    )
     update_pattern = re.compile(r'^UPDATE\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
-    delete_pattern = re.compile(r'^DELETE FROM\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
+    delete_pattern = re.compile(
+        r'^DELETE FROM\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE
+    )
     join_pattern = re.compile(r'JOIN\s+["]?(?:[\w.]+\.)?(\w+)["]?', re.IGNORECASE)
 
     table_names = set()
@@ -1193,7 +1352,9 @@ def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url, anonymize)
     yaml_file_name = db_name + ".yaml"
 
     # Generate the DDL file.
-    all_schemas, mapping = generate_ddls(zip_dir, db_name, os.path.curdir, cluster_url, ddl_file_name, anonymize)
+    all_schemas, mapping = generate_ddls(
+        zip_dir, db_name, os.path.curdir, cluster_url, ddl_file_name, anonymize
+    )
 
     # # Generate the YAML file.
     util_yaml(ddl_file_name, yaml_file_name)
@@ -1201,16 +1362,16 @@ def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url, anonymize)
     # Generate the CSV file.
     # TODO: We should parameterize the values we're passing in below, so that
     #  users can set them themselves.
-    # util_csv(yaml_file_name,
-    #          db_name,
-    #          "",
-    #          1,
-    #          1000000,
-    #          "\t",
-    #          "localhost",
-    #          26257,
-    #          cloud_storage_uri,
-    #          cluster_url)
+    util_csv(yaml_file_name,
+             db_name,
+             "",
+             1,
+             1000000,
+             "\t",
+             "localhost",
+             26257,
+             cloud_storage_uri,
+             cluster_url)
 
     generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir, mapping)
     util_gen_stub(PosixPath(sql_file_name))
@@ -1227,7 +1388,7 @@ def list_databases(zip_content_location):
     with open(file_path, mode="r", newline="", encoding="utf-8") as cs_file:
         # Use the csv reader for tab-separated data.
         # If your data has embedded quotes/tabs/newlines, you may need more robust settings.
-        reader = csv.reader(cs_file, delimiter='\t', quotechar='"')
+        reader = csv.reader(cs_file, delimiter="\t", quotechar='"')
 
         # Attempt to read the header.
         header = next(reader, None)
@@ -1254,15 +1415,19 @@ def list_databases(zip_content_location):
 
         for record in reader:
             # Only process rows for the given db_name and tables.
-            if (record[column_index["descriptor_type"]] == "table" and
-                    record[column_index["schema_name"]] == "public"):
+            if (
+                record[column_index["descriptor_type"]] == "table"
+                and record[column_index["schema_name"]] == "public"
+            ):
 
                 database_name = record[column_index["database_name"]]
 
                 # If this is the first time seeing this table, remember its order.
-                if database_name not in seen_databases and \
-                        "system" not in database_name and \
-                        "crdb_internal" not in database_name:
+                if (
+                    database_name not in seen_databases
+                    and "system" not in database_name
+                    and "crdb_internal" not in database_name
+                ):
                     seen_databases.add(database_name)
 
         print("Databases found in debug zip:\n")
