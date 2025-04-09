@@ -787,9 +787,9 @@ def generate_workload(
                         key_val = replace_placeholders(
                             row[column_index["key"]], all_schemas
                         )
-                    # if re.search(r"\b(IFNULL|DEALLOCATE|WHEN)\b", key_val):
-                    #     # TODO - not handled
-                    #     continue
+                    if re.search(r"\b(DEALLOCATE|WHEN)\b", key_val):
+                        # TODO - not handled
+                        continue
 
                     if txn_id in grouped_keys:
                         # Only add key values from the same node where this txn_id was first encountered.
@@ -1068,7 +1068,18 @@ def replace_tokens(sql, schemas):
     # Extract where conditions from the query
     while query_index < len(query.tokens):
         token = query.tokens[query_index]
-        if type(token) == sqlparse.sql.Where:
+        if token.value == "SELECT":
+            query_index += 1
+            statement += token.value
+            while (
+                query_index < len(query.tokens)
+                and query.tokens[query_index].is_whitespace
+            ):
+                query_index += 1
+                statement += " "  # exhausted all whitespaces
+            statement += process_select_statements(query.tokens[query_index], schemas)
+            query_index += 1
+        elif type(token) == sqlparse.sql.Where:
             where_statement, query_index = process_where_token(
                 token, schemas, query_index
             )
@@ -1087,6 +1098,31 @@ def replace_tokens(sql, schemas):
         else:
             query_index += 1
             statement += token.value
+    return statement
+
+
+def process_select_statements(token, schemas):
+    statement = ""
+    if isinstance(token, sqlparse.sql.IdentifierList):
+        index = 0
+        while index < len(token.tokens):
+            if token.tokens[index].value.startswith("IFNULL"):
+                pattern = r"(,\s*)_(\s*\))"
+                match = re.search(
+                    r"IFNULL\s*\(\s*sum\s*\(\s*([^)]+?)\s*\)\s*,",
+                    token.tokens[index].value,
+                )
+                if match:
+                    column_name = match.group(1).strip()
+                    token.tokens[index].value = re.sub(
+                        pattern,
+                        r"\1" + get_field_column(schemas, column_name) + r"\2",
+                        token.tokens[index].value,
+                    )
+            statement += token.tokens[index].value
+            index += 1
+    else:
+        statement = token.value
     return statement
 
 
@@ -1362,16 +1398,18 @@ def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url, anonymize)
     # Generate the CSV file.
     # TODO: We should parameterize the values we're passing in below, so that
     #  users can set them themselves.
-    util_csv(yaml_file_name,
-             db_name,
-             "",
-             1,
-             1000000,
-             "\t",
-             "localhost",
-             26257,
-             cloud_storage_uri,
-             cluster_url)
+    util_csv(
+        yaml_file_name,
+        db_name,
+        "",
+        1,
+        1000000,
+        "\t",
+        "localhost",
+        26257,
+        cloud_storage_uri,
+        cluster_url,
+    )
 
     generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir, mapping)
     util_gen_stub(PosixPath(sql_file_name))
