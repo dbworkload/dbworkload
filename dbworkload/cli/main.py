@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 import dbworkload.cli.util
+import dbworkload.cli.zip
 import dbworkload.models.run
 import dbworkload.models.util
 import dbworkload.utils.common
@@ -41,6 +42,7 @@ app = typer.Typer(
 
 
 app.add_typer(dbworkload.cli.util.app, name="util")
+app.add_typer(dbworkload.cli.zip.app, name="zip")
 
 version: bool = typer.Option(True)
 

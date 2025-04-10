@@ -1,6 +1,14 @@
 #!/usr/bin/python
-
+import csv
+import random
+import shlex
+import string
+import subprocess
 from io import TextIOWrapper
+from urllib.parse import urlparse
+
+from dbworkload.models.ddl_generator import generate_ddls, Column
+from dbworkload.models.placeholder_processor import replace_placeholders
 from jinja2 import Environment, PackageLoader
 from pathlib import PosixPath
 from plotly.subplots import make_subplots
@@ -22,7 +30,8 @@ import shutil
 import sqlparse
 import sys
 import yaml
-
+import re
+from typing import Dict, List, Any, Tuple, Union, Optional
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)
@@ -37,6 +46,8 @@ def util_csv(
     delimiter: str,
     http_server_hostname: str,
     http_server_port: str,
+    cloud_storage_uri: str,
+    cluster_url: str,
 ):
     """Wrapper around SimpleFaker to create CSV datasets
     given an input YAML data gen definition file
@@ -74,20 +85,57 @@ def util_csv(
 
     csv_files = os.listdir(output_dir)
 
-    for table_name in load.keys():
-        print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
+    if "gs://" in cloud_storage_uri:
+        try:
+            print(
+                "Attempting to upload files from ",
+                output_dir,
+                " to ",
+                cloud_storage_uri,
+            )
+            subprocess.run(
+                ["gsutil", "-m", "cp", "-r", output_dir, cloud_storage_uri], check=True
+            )
+            print(f"Successfully uploaded {output_dir} to {cloud_storage_uri}")
 
-        for s in dbworkload.utils.common.get_import_stmts(
-            [x for x in csv_files if x.startswith(table_name)],
-            table_name,
-            http_server_hostname,
-            http_server_port,
-            delimiter,
-            "",
-        ):
-            print(s, "\n")
+            try:
+                print("Attempting to IMPORT data")
+                for table_name in load.keys():
+                    for s in dbworkload.utils.common.get_import_stmts(
+                        [x for x in csv_files if x.startswith(table_name)],
+                        table_name,
+                        "",
+                        "",
+                        delimiter,
+                        "",
+                        cloud_storage_uri + "/" + str(output_dir),
+                    ):
+                        print("running cockroach to upload")
+                        subprocess.run(
+                            ["cockroach", "sql", "--url", cluster_url, "-e", s],
+                            check=True,
+                        )
+            except subprocess.CalledProcessError as err:
+                print(f"Error during IMPORT: {err}")
+        except subprocess.CalledProcessError as err:
+            print(f"Error during upload: {err}")
 
-        print()
+    else:
+        for table_name in load.keys():
+            print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
+
+            for s in dbworkload.utils.common.get_import_stmts(
+                [x for x in csv_files if x.startswith(table_name)],
+                table_name,
+                http_server_hostname,
+                http_server_port,
+                delimiter,
+                "",
+                "",
+            ):
+                print(s, "\n")
+
+            print()
 
 
 def util_yaml(input: PosixPath, output: PosixPath):
@@ -586,63 +634,490 @@ def util_gen_stub(input_file: PosixPath):
     out = os.path.join(input_file.parent, input_file.stem + ".py")
 
     with open(input_file, "r") as f:
-        lines = f.read()
+        content = f.read()
 
-    # remove all the multiline comments
-    # delimited by /* and */
+    # Remove all multiline comments (/* ... */)
     while True:
-        i = lines.find("/*")
-        j = lines.find("*/")
-
+        i = content.find("/*")
+        j = content.find("*/")
         if i < 0:
             break
-        lines = lines[:i] + lines[j + 2 :]
+        content = content[:i] + content[j + 2 :]
 
-    # given the whole ddl string,
-    # line by line, remove empty lines and
-    # all the comment lines
-    # and return a list of lines, stripped of any whitespace
-    stmts = []
+    # Remove line comments (--) and empty lines
+    cleaned_lines = []
+    for line in content.split("\n"):
+        line = line.strip()
+        comment_index = line.find("--")
+        if comment_index >= 0:
+            line = line[:comment_index]
+        if line:
+            cleaned_lines.append(line)
+    clean_ddl = " ".join(cleaned_lines)
 
-    for s in lines.split("\n"):
-        s = s.strip()
-
-        i = s.find("--")
-        if i >= 0:
-            s = s[:i]
-
-        if s:
-            stmts.append(s)
-
-    # rejoin the lines into a new, clean ddl string
-    clean_ddl = " ".join(stmts)
-
-    # split the clean string by semicolon to get a list
-    # of SQL statements
-    stmts = [s.strip() for s in clean_ddl.split(";") if len(s) > 0]
+    # Determine if the file uses explicit BEGIN/COMMIT boundaries
+    if "begin" in clean_ddl.lower() and "commit" in clean_ddl.lower():
+        transactions = []
+        current_txn = []
+        inside_txn = False
+        # First split on semicolon; note that semicolons inside a transaction will still separate the statements.
+        raw_stmts = [stmt.strip() for stmt in clean_ddl.split(";") if stmt.strip()]
+        for stmt in raw_stmts:
+            lower_stmt = stmt.lower()
+            if not inside_txn:
+                if lower_stmt.startswith("begin"):
+                    # Start a new transaction block
+                    inside_txn = True
+                    current_txn = [stmt]
+                else:
+                    # Statement outside any transaction block, treat as an independent transaction
+                    transactions.append(stmt)
+            else:
+                current_txn.append(stmt)
+                if lower_stmt.startswith("commit"):
+                    # End the current transaction block
+                    inside_txn = False
+                    # Join all parts of the transaction into one string.
+                    transactions.append(";".join(current_txn) + ";")
+                    current_txn = []
+        # If we ended with an unclosed transaction, add what we have.
+        if inside_txn and current_txn:
+            transactions.append(" ; ".join(current_txn))
+    else:
+        # No BEGIN/COMMIT markers; treat each semicolon-separated statement as a transaction.
+        transactions = [stmt.strip() for stmt in clean_ddl.split(";") if stmt.strip()]
 
     model = {}
-    model["txn_count"] = len(stmts)
-
+    model["txn_count"] = len(transactions)
     model["name"] = input_file.name.split(".")[0].capitalize()
-
     model["txns"] = [
-        sqlparse.format(x, reindent=True, keyword_case="upper") for x in stmts
+        sqlparse.format(
+            re.sub(r":-:\|.*?\|:-:", "%s", txn), reindent=True, keyword_case="upper"
+        )
+        for txn in transactions
     ]
 
-    phs = []
     txn_type = []
-
-    for x in stmts:
-        phs.append(x.count("%s"))
+    model["bind_params"] = []
+    for txn in transactions:
         txn_type.append(
-            x.lower().startswith("select") or x.lower().find("returning") > 0
+            txn.lower().startswith("select") or txn.lower().find("returning") > 0
         )
-
-    model["bind_params"] = phs
+        statements = txn.split(";")
+        stmt_placeholder = []
+        for stmt in statements:
+            placeholders = re.findall(r":-:\|(.*?)\|:-:", stmt)
+            stmt_placeholder.append(placeholders)
+        model["bind_params"].append(stmt_placeholder)
     model["txn_type"] = txn_type
 
     with open(out, "w") as f:
         f.write(template.render(model=model))
 
     logger.info(f"Saved stub '{out}'")
+
+
+def generate_workload(
+    zip_content_location, all_schemas, db_name, output_file_location, mapping
+):
+    """
+    Reads a TSV file named 'crdb_internal.node_statement_statistics.txt' from each numeric node directory
+    under zip_content_location/nodes (starting at 1), stopping when a directory doesn't exist.
+
+    Filters rows by db_name and excludes rows where "job id=" appears in the application_name.
+    For each txn_fingerprint_id, it only aggregates key values from the first node that contains it;
+    if the txn_id is encountered in a later node, its key values are ignored.
+
+    Finally, it writes the grouped key values to <db_name>.sql in the output_file_location.
+    """
+    statement_statistics_file_name = "crdb_internal.node_statement_statistics.txt"
+    nodes_base_dir = os.path.join(zip_content_location, "nodes")
+
+    # We'll store each txn_id along with the node it was first found in and its key values.
+    # Structure: { txn_id: { "node": node_number, "keys": [list of key values] } }
+    grouped_keys = {}
+    node = 1
+
+    while True:
+        node_dir = os.path.join(nodes_base_dir, str(node))
+        if not os.path.exists(node_dir):
+            # Stop when a node directory doesn't exist.
+            break
+
+        file_path = os.path.join(node_dir, statement_statistics_file_name)
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Could not find TSV file: {file_path}")
+
+        with open(file_path, mode="r", newline="", encoding="utf-8") as tsv_file:
+            reader = csv.reader(tsv_file, delimiter="\t", quotechar='"')
+            header = next(reader, None)
+            if not header:
+                raise ValueError(
+                    f"TSV file is empty or missing a header row: {file_path}"
+                )
+
+            # Map column names to indices, mapping.
+            column_index = {col: i for i, col in enumerate(header)}
+
+            # Validate required columns.
+            required_columns = [
+                "database_name",
+                "application_name",
+                "key",
+                "txn_fingerprint_id",
+            ]
+            for col in required_columns:
+                if col not in column_index:
+                    raise ValueError(
+                        f"Missing expected column '{col}' in TSV header of file: {file_path}"
+                    )
+
+            # Process each row.
+            for row in reader:
+                if (
+                    row[column_index["database_name"]] == db_name
+                    and "job id=" not in row[column_index["application_name"]]
+                ):
+                    txn_id = row[column_index["txn_fingerprint_id"]]
+                    if mapping:
+                        anon_stmt = anonymize_sql_statement(
+                            row[column_index["key"]], mapping
+                        )
+                        key_val = replace_placeholders(anon_stmt, all_schemas)
+                    else:
+                        key_val = replace_placeholders(
+                            row[column_index["key"]], all_schemas
+                        )
+                    if re.search(r"\b(DEALLOCATE|WHEN)\b", key_val):
+                        # TODO - not handled
+                        continue
+
+                    if txn_id in grouped_keys:
+                        # Only add key values from the same node where this txn_id was first encountered.
+                        if grouped_keys[txn_id]["node"] == node:
+                            grouped_keys[txn_id]["keys"].append(key_val)
+                        # If txn_id was first found in an earlier node, skip adding new key values.
+                    else:
+                        grouped_keys[txn_id] = {"node": node, "keys": [key_val]}
+
+        node += 1  # Move on to the next node directory.
+
+    output_path = os.path.join(output_file_location, f"{db_name}.sql")
+    with open(output_path, mode="w", encoding="utf-8") as out_file:
+        # Write each txn_fingerprint_id block.
+        for txn_id, data in grouped_keys.items():
+            keys = data["keys"]
+            out_file.write("-------Begin Transaction------\nBEGIN;\n")
+            for key in keys:
+                out_file.write(key + ";\n")
+            out_file.write("COMMIT;\n-------End Transaction-------\n\n\n")
+
+    print(
+        f"Successfully wrote {len(grouped_keys)} workload statements to {output_path}"
+    )
+    return grouped_keys
+
+
+def anonymize_sql_statement(sql_statement, mapping):
+    """
+    Anonymize column and table names in SQL statements using the provided mapping.
+
+    Args:
+        sql_statement: A string containing any SQL statement
+        mapping: The mapping dictionary with anonymized table and column names
+
+    Returns:
+        str: The anonymized SQL statement
+    """
+    import re
+
+    # Make a copy of the original statement
+    anonymized_sql = sql_statement
+
+    # Step 1: Anonymize table names
+    for original_table, anon_table in mapping["tables"].items():
+        simple_name = original_table.split(".")[-1]
+
+        # Replace table references with word boundaries
+        anonymized_sql = re.sub(
+            r"\bFROM\s+" + re.escape(simple_name) + r"\b",
+            f"FROM {anon_table}",
+            anonymized_sql,
+            flags=re.IGNORECASE,
+        )
+
+        anonymized_sql = re.sub(
+            r"\bJOIN\s+" + re.escape(simple_name) + r"\b",
+            f"JOIN {anon_table}",
+            anonymized_sql,
+            flags=re.IGNORECASE,
+        )
+
+        anonymized_sql = re.sub(
+            r"\bUPDATE\s+" + re.escape(simple_name) + r"\b",
+            f"UPDATE {anon_table}",
+            anonymized_sql,
+            flags=re.IGNORECASE,
+        )
+
+        anonymized_sql = re.sub(
+            r"\bINSERT\s+INTO\s+" + re.escape(simple_name) + r"\b",
+            f"INSERT INTO {anon_table}",
+            anonymized_sql,
+            flags=re.IGNORECASE,
+        )
+
+    # Step 2: Create a comprehensive list of words to avoid replacing
+    avoid_words = {
+        "select",
+        "from",
+        "where",
+        "group",
+        "order",
+        "by",
+        "having",
+        "limit",
+        "insert",
+        "update",
+        "delete",
+        "set",
+        "into",
+        "values",
+        "returning",
+        "join",
+        "inner",
+        "outer",
+        "left",
+        "right",
+        "full",
+        "on",
+        "using",
+        "union",
+        "all",
+        "intersect",
+        "except",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "and",
+        "or",
+        "not",
+        "null",
+        "true",
+        "false",
+        "is",
+        "in",
+        "between",
+        "like",
+        "as",
+        "of",
+        "system",
+        "time",
+        "distinct",
+        "exists",
+        "any",
+        "some",
+        "offset",
+        "asc",
+        "desc",
+        "interval",
+        "count",
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "now",
+    }
+
+    # Step 3: Determine the primary table
+    primary_table = None
+
+    # Look for table patterns
+    for pattern in [
+        r"\bFROM\s+([^\s,();]+)",
+        r"\bUPDATE\s+([^\s,();]+)",
+        r"\bINSERT\s+INTO\s+([^\s,();]+)",
+    ]:
+        match = re.search(pattern, anonymized_sql, re.IGNORECASE)
+        if match:
+            table_ref = match.group(1)
+            # Find the matching original table
+            for original_table in mapping["tables"]:
+                if (
+                    original_table.split(".")[-1] == table_ref
+                    or mapping["tables"][original_table] == table_ref
+                ):
+                    primary_table = original_table
+                    break
+            if primary_table:
+                break
+
+    # Step 4: Handle INSERT columns specifically
+    if primary_table and "INSERT INTO" in anonymized_sql.upper():
+        insert_match = re.search(
+            r"INSERT\s+INTO\s+[^\s(]+\s*\(([^)]+)\)", anonymized_sql, re.IGNORECASE
+        )
+
+        if insert_match:
+            columns_str = insert_match.group(1)
+            columns = [col.strip() for col in columns_str.split(",")]
+
+            # Use primary table's column mapping
+            anonymized_columns = []
+            for col in columns:
+                if (
+                    primary_table in mapping["columns"]
+                    and col in mapping["columns"][primary_table]
+                ):
+                    anonymized_columns.append(mapping["columns"][primary_table][col])
+                else:
+                    # If not found in primary table, check other tables
+                    found = False
+                    for table in mapping["columns"]:
+                        if col in mapping["columns"][table]:
+                            anonymized_columns.append(mapping["columns"][table][col])
+                            found = True
+                            break
+                    if not found:
+                        anonymized_columns.append(col)
+
+            # Replace the column list
+            new_columns_str = ", ".join(anonymized_columns)
+            anonymized_sql = re.sub(
+                r"(INSERT\s+INTO\s+[^\s(]+\s*\()([^)]+)(\))",
+                r"\1" + new_columns_str + r"\3",
+                anonymized_sql,
+                flags=re.IGNORECASE,
+            )
+
+    # Step 5: For each table in the mapping, explicitly replace its columns
+    processed_columns = set()
+
+    for table_name, table_columns in mapping["columns"].items():
+        for original_col, anon_col in table_columns.items():
+            # Skip if already processed or if it's a word to avoid
+            if original_col in processed_columns or original_col.lower() in avoid_words:
+                continue
+
+            # Use word boundaries to replace only whole words
+            anonymized_sql = re.sub(
+                r"\b" + re.escape(original_col) + r"\b", anon_col, anonymized_sql
+            )
+
+            processed_columns.add(original_col)
+
+    # Step 6: Special handling for specific keywords that should not be anonymized
+    for keyword in ["valid", "INTERVAL", "TIMESTAMPTZ", "LIMIT"]:
+        # If the keyword was accidentally anonymized, restore it
+        for anon_col in processed_columns:
+            anonymized_sql = re.sub(
+                r"\b" + re.escape(anon_col) + r"\b" + keyword, keyword, anonymized_sql
+            )
+
+    return anonymized_sql
+
+# TODO: move this out of the util file into a separate zip file
+def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url, anonymize):
+    if anonymize:
+        ddl_file_name = db_name + ".anonymize.schema.sql"
+    else:
+        ddl_file_name = db_name + ".schema.sql"
+
+    sql_file_name = db_name + ".sql"
+    yaml_file_name = db_name + ".yaml"
+
+    # Generate the DDL file.
+    all_schemas, mapping = generate_ddls(
+        zip_dir, db_name, os.path.curdir, cluster_url, ddl_file_name, anonymize
+    )
+
+    # # Generate the YAML file.
+    util_yaml(ddl_file_name, yaml_file_name)
+
+    # Generate the CSV file.
+    # TODO: We should parameterize the values we're passing in below, so that
+    #  users can set them themselves.
+    util_csv(
+        yaml_file_name,
+        db_name,
+        "",
+        1,
+        1000000,
+        "\t",
+        "localhost",
+        26257,
+        cloud_storage_uri,
+        cluster_url,
+    )
+
+    generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir, mapping)
+    util_gen_stub(PosixPath(sql_file_name))
+    return
+
+
+def list_databases(zip_content_location):
+    create_statement_file_name = "crdb_internal.create_statements.txt"
+    file_path = os.path.join(zip_content_location, create_statement_file_name)
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Could not find create_statements file: " + file_path)
+
+    with open(file_path, mode="r", newline="", encoding="utf-8") as cs_file:
+        # Use the csv reader for tab-separated data.
+        # If your data has embedded quotes/tabs/newlines, you may need more robust settings.
+        reader = csv.reader(cs_file, delimiter="\t", quotechar='"')
+
+        # Attempt to read the header.
+        header = next(reader, None)
+        if not header:
+            raise ValueError("create_statement file is empty or missing a header row.")
+
+        # Build a mapping of column names to their indices.
+        column_index = {col: i for i, col in enumerate(header)}
+
+        # Validate required columns exist.
+        required_columns = [
+            "database_name",
+            "create_statement",
+            "schema_name",
+            "descriptor_type",
+            "descriptor_name",
+        ]
+
+        for col in required_columns:
+            if col not in column_index:
+                raise ValueError(f"Missing expected column '{col}' in CS header.")
+
+        seen_databases = set()
+
+        for record in reader:
+            # Only process rows for the given db_name and tables.
+            if (
+                record[column_index["descriptor_type"]] == "table"
+                and record[column_index["schema_name"]] == "public"
+            ):
+
+                database_name = record[column_index["database_name"]]
+
+                # If this is the first time seeing this table, remember its order.
+                if (
+                    database_name not in seen_databases
+                    and "system" not in database_name
+                    and "crdb_internal" not in database_name
+                ):
+                    seen_databases.add(database_name)
+
+        print("Databases found in debug zip:\n")
+        for db in seen_databases:
+            print("* ", db)
+        return
+
+
+def zip_list(zip_dir: PosixPath):
+    # Generate the DDL file.
+    # TODO: this function should take the ouptut_file name.
+    list_databases(zip_dir)
+
+    return
