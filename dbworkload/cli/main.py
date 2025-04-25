@@ -148,6 +148,11 @@ def run(
         "--schedule",
         help="schedule JSON string or filepath to the schedule file.",
     ),
+    histogram_bins: str = typer.Option(
+        "5,10,25,50,75,100,125,250,500,750,1000",
+        "--bins",
+        help="comma separated list of ints defining the histogram bins.",
+    ),
     log_level: LogLevel = Param.LogLevel,
 ):
     logger.setLevel(log_level.upper())
@@ -234,6 +239,7 @@ def run(
 
     args = load_args(args)
 
+    histogram_bins = histogram_bins.split(",")
     schedule = load_schedule(schedule)
 
     dbworkload.models.run.run(
@@ -252,6 +258,7 @@ def run(
         quiet,
         save,
         schedule,
+        histogram_bins,
         log_level.upper(),
     )
 

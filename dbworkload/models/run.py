@@ -177,6 +177,7 @@ def run(
     quiet: bool,
     save: bool,
     schedule: list,
+    histogram_bins: list,
     log_level: str,
 ):
     def gracefully_shutdown(by_keyinterrupt: bool = False):
@@ -329,7 +330,7 @@ def run(
 
     stats = dbworkload.utils.common.Stats(start_time)
 
-    prom = dbworkload.utils.common.Prom(prom_port, stats)
+    prom = dbworkload.utils.common.Prom(prom_port, stats, histogram_bins)
 
     to_main_q = mp.Queue()
 

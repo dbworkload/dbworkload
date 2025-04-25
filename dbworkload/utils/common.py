@@ -171,9 +171,10 @@ class WorkerStats:
 
 
 class CustomHistogram(Collector):
-    def __init__(self, name: str, stats: Stats):
+    def __init__(self, name: str, stats: Stats, bins: list):
         self.name = name
         self.stats = stats
+        self.bins = bins
 
     def get_buckets(self, name):
         td = self.stats.cumulative_counts.get(name)
@@ -181,10 +182,7 @@ class CustomHistogram(Collector):
             return [["+Inf", 0]]
 
         # create buckets from 10 ... 180
-        td_hist = [
-            [str(x), int(td.cdf((x + 1) / 1000) * td.weight)]
-            for x in list(range(10, 190, 10))
-        ]
+        td_hist = [[x, int(td.cdf((int(x) + 1) / 1000) * td.weight)] for x in self.bins]
         td_hist.append(["+Inf", td.weight])
 
         return td.mean * 1000 * td.weight, td_hist
@@ -200,9 +198,10 @@ class CustomHistogram(Collector):
 
 
 class Prom:
-    def __init__(self, prom_port: int = 26260, stats: Stats = None):
+    def __init__(self, prom_port: int = 26260, stats: Stats = None, bins: list = []):
         self.prom_latency: dict[str, list[prom.Gauge]] = {}
         self.stats = stats
+        self.bins = bins
 
         # don't stop just because prom server can't start
         try:
@@ -221,7 +220,7 @@ class Prom:
             if id not in self.prom_latency:
                 self.prom_latency[id] = []
 
-                REGISTRY.register(CustomHistogram(id, self.stats))
+                REGISTRY.register(CustomHistogram(id, self.stats, self.bins))
 
                 self.prom_latency[id].append(
                     prom.Gauge(f"{id}__tot_ops", "total count of ops")
