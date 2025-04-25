@@ -1,8 +1,9 @@
 import datetime as dt
-from oracledb import Connection
 import random
 import time
 import uuid
+
+from oracledb import Connection
 
 
 class Bank:

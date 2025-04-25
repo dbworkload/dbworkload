@@ -1,6 +1,7 @@
 import psycopg
-from dbworkload.utils import simplefaker
 import yaml
+
+from dbworkload.utils import simplefaker
 
 
 class Seeder:

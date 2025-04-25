@@ -1,11 +1,12 @@
-from google.cloud.spanner_v1.database import Database
-from google.cloud.spanner_v1.transaction import Transaction
-from google.cloud.spanner_v1 import param_types
 import random
 import time
-from uuid import uuid4
-from collections import deque
 from base64 import encodebytes
+from collections import deque
+from uuid import uuid4
+
+from google.cloud.spanner_v1 import param_types
+from google.cloud.spanner_v1.database import Database
+from google.cloud.spanner_v1.transaction import Transaction
 
 
 class Bank:

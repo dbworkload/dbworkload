@@ -1,12 +1,14 @@
+import builtins
 import csv
 import datetime as dt
 import logging
 import multiprocessing as mp
 import os
-import pandas as pd
-import uuid
 import random
-import builtins
+import uuid
+
+import pandas as pd
+
 from .common import import_class_at_runtime
 
 logger = logging.getLogger("dbworkload")

@@ -1,8 +1,9 @@
 import datetime as dt
-from pymongo import MongoClient
 import random
 import time
 import uuid
+
+from pymongo import MongoClient
 
 
 class Bank:

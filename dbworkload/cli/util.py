@@ -1,13 +1,15 @@
 #!/usr/bin/python
 
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
 from typing import Optional
+
+import typer
+
 import dbworkload.models.run
 import dbworkload.models.util
 import dbworkload.utils.common
-from dbworkload.cli.dep import Param, EPILOG
-import typer
+from dbworkload.cli.dep import EPILOG, Param
 
 
 class Compression(str, Enum):

@@ -1,8 +1,9 @@
 import datetime as dt
-from mysql.connector import MySQLConnection
 import random
 import time
 import uuid
+
+from mysql.connector import MySQLConnection
 
 
 class Bank:

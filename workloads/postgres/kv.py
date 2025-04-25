@@ -1,9 +1,10 @@
-from collections import deque
-import psycopg
 import random
 import time
 import uuid
+from collections import deque
 from itertools import zip_longest
+
+import psycopg
 
 COL_TYPES = ["bytes", "uuid", "int", "string", "fixed"]
 WRITE_MODES = ["insert", "upsert", "do_nothing"]

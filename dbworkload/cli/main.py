@@ -1,23 +1,26 @@
 #!/usr/bin/python
 
-from .. import __version__
-from dbworkload.cli.dep import Param, EPILOG, ConnInfo
-from enum import Enum
-from pathlib import Path
-from typing import Optional
-from urllib.parse import urlparse
-import dbworkload.cli.util
-import dbworkload.models.run
-import dbworkload.models.util
-import dbworkload.utils.common
 import json
 import logging
 import os
 import platform
 import sys
+from enum import Enum
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
+
+import pandas as pd
 import typer
 import yaml
-import pandas as pd
+
+import dbworkload.cli.util
+import dbworkload.models.run
+import dbworkload.models.util
+import dbworkload.utils.common
+from dbworkload.cli.dep import EPILOG, ConnInfo, Param
+
+from .. import __version__
 
 logger = logging.getLogger("dbworkload")
 

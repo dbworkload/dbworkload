@@ -1,28 +1,29 @@
 #!/usr/bin/python
 
-from io import TextIOWrapper
-from jinja2 import Environment, PackageLoader
-from pathlib import PosixPath
-from plotly.subplots import make_subplots
-from pytdigest import TDigest
 import datetime as dt
-import dbworkload
-import dbworkload.utils.common
-import dbworkload.utils.simplefaker
 import gzip
 import itertools
 import logging
-import numpy as np
 import os
+import shutil
+import sys
+from io import TextIOWrapper
+from pathlib import PosixPath
+
+import numpy as np
 import pandas as pd
 import plotext as plt
 import plotly.graph_objects as go
 import plotly.io as pio
-import shutil
 import sqlparse
-import sys
 import yaml
+from jinja2 import Environment, PackageLoader
+from plotly.subplots import make_subplots
+from pytdigest import TDigest
 
+import dbworkload
+import dbworkload.utils.common
+import dbworkload.utils.simplefaker
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)

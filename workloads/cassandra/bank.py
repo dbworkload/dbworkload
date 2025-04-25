@@ -2,6 +2,7 @@ import datetime as dt
 import random
 import time
 import uuid
+
 from cassandra.cluster import Session
 
 

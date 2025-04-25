@@ -1,8 +1,9 @@
-import psycopg
 import random
 import time
-from uuid import uuid4
 from collections import deque
+from uuid import uuid4
+
+import psycopg
 
 
 class Bank:

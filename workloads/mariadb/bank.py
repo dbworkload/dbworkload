@@ -1,8 +1,9 @@
 import datetime as dt
-from mariadb import Connection
 import random
 import time
 import uuid
+
+from mariadb import Connection
 
 
 class Bank:

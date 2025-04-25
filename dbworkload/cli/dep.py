@@ -1,7 +1,8 @@
 #!/usr/bin/python
 
-from .. import __version__
 import typer
+
+from .. import __version__
 
 EPILOG = "Docs: <https://dbworkload.github.io/dbworkload/>"
 
