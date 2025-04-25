@@ -2,14 +2,17 @@
 
 import importlib
 import logging
-import numpy as np
 import os
 import random
 import sys
 import time
 import urllib.parse
-import yaml
+
+import numpy as np
 import prometheus_client as prom
+import yaml
+from prometheus_client.core import REGISTRY, HistogramMetricFamily
+from prometheus_client.registry import Collector
 from pytdigest import TDigest
 
 RESERVED_WORDS = [
@@ -45,57 +48,8 @@ NOT_NULL_MAX = 40
 
 logger = logging.getLogger("dbworkload")
 
-
-class Prom:
-    def __init__(self, prom_port: int = 26260):
-        self.prom_latency: dict[str, list[prom.Gauge]] = {}
-
-        # don't stop just because prom server can't start
-        try:
-            prom.start_http_server(prom_port)
-        except OSError as e:
-            logger.warning(f"Cannot start prometheus server: {e}")
-
-        self.threads = prom.Gauge(
-            "threads", "count of connection threads to the database."
-        )
-
-    def publish(self, report: list):
-        for row in report:
-            id = row[1]
-
-            if id not in self.prom_latency:
-                self.prom_latency[id] = []
-                self.prom_latency[id].append(
-                    prom.Gauge(f"{id}__tot_ops", "total count of ops")
-                )
-                self.prom_latency[id].append(
-                    prom.Gauge(
-                        f"{id}__tot_ops_s", "derived value from tot_ops / elapsed"
-                    )
-                )
-                self.prom_latency[id].append(
-                    prom.Gauge(f"{id}__period_ops", "ops count for the recent window")
-                )
-                self.prom_latency[id].append(
-                    prom.Gauge(
-                        f"{id}__period_ops_s",
-                        "derived value from period_ops / window duration",
-                    )
-                )
-                self.prom_latency[id].append(prom.Gauge(f"{id}__mean_ms", "mean_ms"))
-                self.prom_latency[id].append(prom.Gauge(f"{id}__p50_ms", "p50_ms"))
-                self.prom_latency[id].append(prom.Gauge(f"{id}__p90_ms", "p90_ms"))
-                self.prom_latency[id].append(prom.Gauge(f"{id}__p95_ms", "p95_ms"))
-                self.prom_latency[id].append(prom.Gauge(f"{id}__p99_ms", "p99_ms"))
-                self.prom_latency[id].append(prom.Gauge(f"{id}__max_ms", "max_ms"))
-
-            for idx, v in enumerate(row[3:]):
-                self.prom_latency[id][idx].set(v)
-
-        # threads value is the same for all rows
-        if report:
-            self.threads.set(report[0][2])
+from prometheus_client.core import REGISTRY, HistogramMetricFamily
+from prometheus_client.registry import Collector
 
 
 class Stats:
@@ -214,6 +168,85 @@ class WorkerStats:
             (id, TDigest.compute(np.array(l), compression=1000).get_centroids())
             for id, l in self.window_stats.items()
         ]
+
+
+class CustomHistogram(Collector):
+    def __init__(self, name: str, stats: Stats):
+        self.name = name
+        self.stats = stats
+
+    def get_buckets(self, name):
+        td = self.stats.cumulative_counts.get(name)
+        if td is None:
+            return [["+Inf", 0]]
+
+        # create buckets from 10 ... 180
+        td_hist = [
+            [str(x), int(td.cdf((x + 1) / 1000) * td.weight)]
+            for x in list(range(10, 190, 10))
+        ]
+        td_hist.append(["+Inf", td.weight])
+
+        return td.mean * 1000 * td.weight, td_hist
+
+    def collect(self):
+        sum_value, buckets = self.get_buckets(self.name)
+        yield HistogramMetricFamily(
+            f"{self.name}_latency_ms",
+            f"Latency in ms for {self.name}",
+            buckets,
+            sum_value,
+        )
+
+
+class Prom:
+    def __init__(self, prom_port: int = 26260, stats: Stats = None):
+        self.prom_latency: dict[str, list[prom.Gauge]] = {}
+        self.stats = stats
+
+        # don't stop just because prom server can't start
+        try:
+            prom.start_http_server(prom_port)
+        except OSError as e:
+            logger.warning(f"Cannot start prometheus server: {e}")
+
+        self.threads = prom.Gauge(
+            "threads", "count of connection threads to the database."
+        )
+
+    def publish(self, report: list, td: dict = {}):
+        for row in report:
+            id = row[1]
+
+            if id not in self.prom_latency:
+                self.prom_latency[id] = []
+
+                REGISTRY.register(CustomHistogram(id, self.stats))
+
+                self.prom_latency[id].append(
+                    prom.Gauge(f"{id}__tot_ops", "total count of ops")
+                )
+                self.prom_latency[id].append(
+                    prom.Gauge(
+                        f"{id}__tot_ops_s", "derived value from tot_ops / elapsed"
+                    )
+                )
+                self.prom_latency[id].append(
+                    prom.Gauge(f"{id}__period_ops", "ops count for the recent window")
+                )
+                self.prom_latency[id].append(
+                    prom.Gauge(
+                        f"{id}__period_ops_s",
+                        "derived value from period_ops / window duration",
+                    )
+                )
+
+            for idx, v in enumerate(row[3:6]):
+                self.prom_latency[id][idx].set(v)
+
+        # threads value is the same for all rows
+        if report:
+            self.threads.set(report[0][2])
 
 
 def get_driver_from_scheme(scheme: str):
@@ -653,23 +686,6 @@ def ddl_to_yaml(ddl: str):
                 col_def += i
             elif within_brackets > 0 and i == ",":
                 col_def += ":"
-
-        # process the content within parenthesis in the
-        # CREATE TABLE stmt char by char to distinguish
-        # the comma for separating columns vs the comma
-        # included in single quote strings such as those in DEFAULT
-        # eg: mycol STRING NULL DEFAULT 'corporate, inc'
-        within_quote = False
-        col_def_str = col_def
-        col_def = ""
-        for i in col_def_str:
-            if i == "'":
-                within_quote = not within_quote
-                continue
-            if within_quote:
-                continue
-            else:
-                col_def += i
 
         col_def = [x.strip().lower() for x in col_def.split(",")]
 

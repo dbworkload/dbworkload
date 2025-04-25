@@ -1,24 +1,23 @@
 #!/usr/bin/python
 
-from contextlib import contextmanager
-from dbworkload.cli.dep import ConnInfo
-import dbworkload.utils.common
+import errno
 import logging
-import logging.handlers
 import multiprocessing as mp
-import numpy as np
+import os
 import queue
 import random
 import signal
 import sys
-import sys
-import tabulate
-from threading import Thread
 import time
 import traceback
-import os
-import errno
+from contextlib import contextmanager
+from threading import Thread
 
+import numpy as np
+import tabulate
+
+import dbworkload.utils.common
+from dbworkload.cli.dep import ConnInfo
 
 # from cassandra.cluster import Cluster, ExecutionProfile, EXEC_PROFILE_DEFAULT, Session
 # from cassandra.policies import (
@@ -330,7 +329,7 @@ def run(
 
     stats = dbworkload.utils.common.Stats(start_time)
 
-    prom = dbworkload.utils.common.Prom(prom_port)
+    prom = dbworkload.utils.common.Prom(prom_port, stats)
 
     to_main_q = mp.Queue()
 
