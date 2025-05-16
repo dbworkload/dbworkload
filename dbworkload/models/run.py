@@ -110,7 +110,9 @@ def signal_handler(sig, frame):
             sys.exit(1)
 
     logger.debug("Sent poison pill to all procs")
-    os.remove(FIFO)
+
+    if os.path.exists(FIFO):
+        os.remove(FIFO)
 
 
 def cycle(iterable, backwards=False):
