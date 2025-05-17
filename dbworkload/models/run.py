@@ -15,6 +15,7 @@ from threading import Thread
 
 import numpy as np
 import tabulate
+from psutil import cpu_percent, virtual_memory
 
 import dbworkload.utils.common
 from dbworkload.cli.dep import ConnInfo
@@ -31,6 +32,7 @@ from dbworkload.cli.dep import ConnInfo
 DEFAULT_SLEEP = 3
 MAX_RETRIES = 3
 FREQUENCY = 10
+STATS_BUFFER = 8
 
 FIFO = "dbworkload.pipe"
 
@@ -102,7 +104,7 @@ def signal_handler(sig, frame):
         sys.exit(1)
 
     force_exit = True
-    
+
     # send the poison pill to each proc.
     # if dbworkload cannot graceful shutdown due
     # to processes being still in the init phase
@@ -190,8 +192,7 @@ def run(
     log_level: str,
 ):
     def gracefully_shutdown(by_keyinterrupt: bool = False):
-
-        logger.info("Gracefully shutting down...")
+        logger.debug("Gracefully shutting down...")
 
         end_time = int(time.time())
         # _s = stats_received
@@ -208,7 +209,7 @@ def run(
                 if x.is_alive():
                     x.join()
 
-        # Commenting the below as in theory there shouldn't be any stats that 
+        # Commenting the below as in theory there shouldn't be any stats that
         # comes in *after* the PROC returns. That is, all threads send stats
         # when all threads are returned, then the supervisor returns.
         # while True:
@@ -384,10 +385,10 @@ def run(
         )
         supervisors[x].start()
 
-    # report time happens 2 seconds after the stats are received.
+    # report time happens STATS_BUFFER seconds after the stats are received.
     # we add this buffer to make sure we get all the stats reports
     # from each thread before we aggregate and display
-    report_time = start_time + FREQUENCY + 2
+    report_time = start_time + FREQUENCY + STATS_BUFFER
 
     returned_procs = 0
     active_connections = 0
@@ -488,7 +489,7 @@ def run(
                     active_connections -= 1
                 elif msg == "proc_returned":
                     returned_procs += 1
-                    logger.info(f"Stopped processes: {returned_procs}/{procs} ")
+                    logger.debug(f"Stopped processes: {returned_procs}/{procs} ")
                 elif msg == "task_done":
                     returned_threads += 1
             except queue.Empty:
@@ -512,11 +513,15 @@ def run(
                     sys.exit(1)
 
             if time.time() >= report_time:
-                # if stats_received != active_connections:
-                #     logger.warning("didn't receive all stats reports yet")
+                cpu_util = cpu_percent()
+                vmem = virtual_memory().percent
+                if stats_received != active_connections or cpu_util > 70 or vmem > 70:
+                    logger.warning(
+                        f"{stats_received=}, expected={active_connections}. CPU Util={cpu_util}%, Memory={vmem}%"
+                    )
 
-                # remove the 2 seconds added
-                endtime = int(time.time()) - 2
+                # remove the STATS_BUFFER seconds added
+                endtime = int(time.time()) - STATS_BUFFER
 
                 report = stats.calculate_stats(active_connections, endtime)
 
@@ -591,7 +596,7 @@ def run(
                 report_time += FREQUENCY
 
             # pause briefly to prevent the loop from overheating the CPU
-            time.sleep(.001)
+            time.sleep(0.001)
 
     gracefully_shutdown()
 
