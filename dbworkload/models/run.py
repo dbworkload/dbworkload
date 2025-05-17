@@ -36,6 +36,7 @@ FIFO = "dbworkload.pipe"
 
 logger = logging.getLogger("dbworkload")
 
+force_exit = False
 
 HEADERS: list = [
     "elapsed",
@@ -95,7 +96,13 @@ def signal_handler(sig, frame):
         frame (_type_):
     """
     logger.info("KeyboardInterrupt signal detected. Stopping processes...")
+    global force_exit
+    if force_exit:
+        logger.warning("Forcibly quitting. You're rude!")
+        sys.exit(1)
 
+    force_exit = True
+    
     # send the poison pill to each proc.
     # if dbworkload cannot graceful shutdown due
     # to processes being still in the init phase
@@ -104,7 +111,7 @@ def signal_handler(sig, frame):
     # and raise the queue.Full exception, forcing to quit.
     for q in queues.values():
         try:
-            q.put("proc_end", timeout=0.1)
+            q.put("proc_end")
         except queue.Full:
             logger.error("Timed out")
             sys.exit(1)
@@ -183,18 +190,16 @@ def run(
     log_level: str,
 ):
     def gracefully_shutdown(by_keyinterrupt: bool = False):
-        """
-        wait for final stat reports to come in,
-        then print final stats and quit
-        """
+
+        logger.info("Gracefully shutting down...")
 
         end_time = int(time.time())
-        _s = stats_received
+        # _s = stats_received
 
         if not by_keyinterrupt:
             for q in queues.values():
                 try:
-                    q.put("proc_end", timeout=0.1)
+                    q.put("proc_end")
                 except queue.Full:
                     logger.error("Timed out")
                     sys.exit(1)
@@ -203,20 +208,23 @@ def run(
                 if x.is_alive():
                     x.join()
 
-        while True:
-            try:
-                msg = to_main_q.get(block=True, timeout=2.0)
-                if isinstance(msg, list):
-                    _s += 1
-                    stats.add_tds(msg)
-                    if _s >= active_connections:
-                        break
-                else:
-                    logger.error("Timed out, quitting")
-                    sys.exit(1)
+        # Commenting the below as in theory there shouldn't be any stats that 
+        # comes in *after* the PROC returns. That is, all threads send stats
+        # when all threads are returned, then the supervisor returns.
+        # while True:
+        #     try:
+        #         msg = to_main_q.get(block=True, timeout=2.0)
+        #         if isinstance(msg, list):
+        #             _s += 1
+        #             stats.add_tds(msg)
+        #             if _s >= active_connections:
+        #                 break
+        #         else:
+        #             logger.error("Timed out, quitting")
+        #             sys.exit(1)
 
-            except queue.Empty:
-                break
+        #     except queue.Empty:
+        #         break
 
         # now that we have all stat reports, calculate the stats one last time.
         report = stats.calculate_stats(active_connections, end_time)
@@ -480,6 +488,7 @@ def run(
                     active_connections -= 1
                 elif msg == "proc_returned":
                     returned_procs += 1
+                    logger.info(f"Stopped processes: {returned_procs}/{procs} ")
                 elif msg == "task_done":
                     returned_threads += 1
             except queue.Empty:
@@ -582,7 +591,7 @@ def run(
                 report_time += FREQUENCY
 
             # pause briefly to prevent the loop from overheating the CPU
-            time.sleep(0.1)
+            time.sleep(.001)
 
     gracefully_shutdown()
 
