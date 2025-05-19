@@ -189,6 +189,7 @@ def run(
     save: bool,
     schedule: list,
     histogram_bins: list,
+    delay_stats: int,
     log_level: str,
 ):
     def gracefully_shutdown(by_keyinterrupt: bool = False):
@@ -228,7 +229,7 @@ def run(
         #         break
 
         # now that we have all stat reports, calculate the stats one last time.
-        report = stats.calculate_stats(active_connections, end_time)
+        report = stats.calculate_stats(active_connections, end_time - delay_stats)
         centroids = stats.get_centroids()
 
         if save:
@@ -250,7 +251,7 @@ def run(
 
         # the final stat report summarizes the entire test run
         final_stats_report = tabulate.tabulate(
-            stats.calculate_final_stats(active_connections, end_time),
+            stats.calculate_final_stats(active_connections, stats.endtime),
             FINAL_HEADERS,
             tablefmt="simple_outline",
             intfmt=",",
@@ -268,6 +269,7 @@ def run(
                 ["iterations", iterations],
                 ["ramp", ramp],
                 ["args", args],
+                ["delay_stats", delay_stats],
             ],
             headers=["Parameter", "Value"],
         )
@@ -388,7 +390,7 @@ def run(
     # report time happens STATS_BUFFER seconds after the stats are received.
     # we add this buffer to make sure we get all the stats reports
     # from each thread before we aggregate and display
-    report_time = start_time + FREQUENCY + STATS_BUFFER
+    report_time = start_time + FREQUENCY + STATS_BUFFER + delay_stats
 
     returned_procs = 0
     active_connections = 0
@@ -427,7 +429,7 @@ def run(
             ramp_time = dur
 
         logger.info(
-            f"Starting schedule {i+1}/{len(schedule)}: cc={cc}, max_rate={max_rate}, ramp={ramp_time}, dur={dur}"
+            f"Starting schedule {i+1}/{len(schedule)}: {cc=}, {max_rate=}, {ramp_time=}, {dur=}"
         )
 
         # always make sure that a duration is specified, even if none was passed
@@ -521,7 +523,7 @@ def run(
                     )
 
                 # remove the STATS_BUFFER seconds added
-                endtime = int(time.time()) - STATS_BUFFER
+                endtime = int(time.time() - delay_stats) - STATS_BUFFER
 
                 report = stats.calculate_stats(active_connections, endtime)
 

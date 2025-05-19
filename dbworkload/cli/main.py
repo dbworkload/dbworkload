@@ -16,7 +16,6 @@ import yaml
 
 import dbworkload.cli.util
 import dbworkload.models.run
-import dbworkload.models.util
 import dbworkload.utils.common
 from dbworkload.cli.dep import EPILOG, ConnInfo, Param
 
@@ -153,6 +152,9 @@ def run(
         "--bins",
         help="comma separated list of ints defining the histogram bins.",
     ),
+    delay_stats: int = typer.Option(
+        0, "--delay-stats", help="Start collecting stats after the speciied seconds."
+    ),
     log_level: LogLevel = Param.LogLevel,
 ):
     logger.setLevel(log_level.upper())
@@ -259,6 +261,7 @@ def run(
         save,
         schedule,
         histogram_bins,
+        delay_stats,
         log_level.upper(),
     )
 
