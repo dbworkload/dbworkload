@@ -38,6 +38,7 @@ plotext = "*"
 plotly = "*"
 jinja2 = "*"
 sqlparse = "*"
+psutil = "^7.0.0"
 
 [tool.poetry.extras]
 all =  ["psycopg", "psycopg-binary", "mysql-connector-python", "mariadb", "oracledb", "pyodbc", "pymongo", "cassandra-driver", "google-cloud-spanner"]

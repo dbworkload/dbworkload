@@ -34,11 +34,11 @@ MAX_RETRIES = 3
 FREQUENCY = 10
 STATS_BUFFER = 8
 
-FIFO = "dbworkload.pipe"
+DBWORKLOAD_PIPE = "dbworkload.pipe"
 
 logger = logging.getLogger("dbworkload")
 
-force_exit = False
+sigterm_received = False
 
 HEADERS: list = [
     "elapsed",
@@ -98,30 +98,14 @@ def signal_handler(sig, frame):
         frame (_type_):
     """
     logger.info("KeyboardInterrupt signal detected. Stopping processes...")
-    global force_exit
-    if force_exit:
+    global sigterm_received
+
+    # if a keyboardinterrupt event was already receive, just exit.
+    if sigterm_received:
         logger.warning("Forcibly quitting. You're rude!")
         sys.exit(1)
 
-    force_exit = True
-
-    # send the poison pill to each proc.
-    # if dbworkload cannot graceful shutdown due
-    # to processes being still in the init phase
-    # when the pill is sent, a subsequent Ctrl+C will cause
-    # the pill to overflow the kill_q
-    # and raise the queue.Full exception, forcing to quit.
-    for q in queues.values():
-        try:
-            q.put("proc_end")
-        except queue.Full:
-            logger.error("Timed out")
-            sys.exit(1)
-
-    logger.debug("Sent poison pill to all procs")
-
-    if os.path.exists(FIFO):
-        os.remove(FIFO)
+    sigterm_received = True
 
 
 def cycle(iterable, backwards=False):
@@ -192,41 +176,46 @@ def run(
     delay_stats: int,
     log_level: str,
 ):
-    def gracefully_shutdown(by_keyinterrupt: bool = False):
+    def gracefully_shutdown():
         logger.debug("Gracefully shutting down...")
 
         end_time = int(time.time())
-        # _s = stats_received
+        _stats_received = stats_received
 
-        if not by_keyinterrupt:
-            for q in queues.values():
+        # notify all Supervisors to quit
+        for q in queues.values():
+            q.put("poison_pill")
+
+        # wait for supervisors to quit and drain
+        # the to_main_q at the same time to avoid locking
+        for x in supervisors.values():
+            while x.is_alive():
                 try:
-                    q.put("proc_end")
-                except queue.Full:
-                    logger.error("Timed out")
-                    sys.exit(1)
+                    msg = to_main_q.get(block=True, timeout=0.5)
+                    if isinstance(msg, list):
+                        _stats_received += 1
+                        stats.add_tds(msg)
+                except queue.Empty:
+                    pass
 
-            for x in supervisors.values():
-                if x.is_alive():
-                    x.join()
+            x.join()
 
-        # Commenting the below as in theory there shouldn't be any stats that
-        # comes in *after* the PROC returns. That is, all threads send stats
-        # when all threads are returned, then the supervisor returns.
-        # while True:
-        #     try:
-        #         msg = to_main_q.get(block=True, timeout=2.0)
-        #         if isinstance(msg, list):
-        #             _s += 1
-        #             stats.add_tds(msg)
-        #             if _s >= active_connections:
-        #                 break
-        #         else:
-        #             logger.error("Timed out, quitting")
-        #             sys.exit(1)
+        # Catch all for loose stats, if any?
+        while True:
+            try:
+                msg = to_main_q.get(block=False)
+                if isinstance(msg, list):
+                    _stats_received += 1
+                    stats.add_tds(msg)
+            except queue.Empty:
+                break
 
-        #     except queue.Empty:
-        #         break
+        cpu_util = cpu_percent()
+        vmem = virtual_memory().percent
+        if _stats_received != active_connections or cpu_util > 70 or vmem > 70:
+            logger.warning(
+                f"{_stats_received=}, expected={active_connections}. CPU Util={cpu_util}%, Memory={vmem}%"
+            )
 
         # now that we have all stat reports, calculate the stats one last time.
         report = stats.calculate_stats(active_connections, end_time - delay_stats)
@@ -313,6 +302,9 @@ def run(
             "\n",
             sep="",
         )
+
+        if os.path.exists(DBWORKLOAD_PIPE):
+            os.remove(DBWORKLOAD_PIPE)
 
         sys.exit(0)
 
@@ -474,7 +466,7 @@ def run(
 
             current_cc = cc
 
-        returned_threads = 0
+        task_done_threads = 0
 
         # loop for the entire duration of the schedule's current line
         while time.time() < end_schedule_time:
@@ -489,30 +481,24 @@ def run(
                     active_connections += 1
                 elif msg == "got_killed":
                     active_connections -= 1
-                elif msg == "proc_returned":
-                    returned_procs += 1
-                    logger.debug(f"Stopped processes: {returned_procs}/{procs} ")
                 elif msg == "task_done":
-                    returned_threads += 1
+                    task_done_threads += 1
+                elif isinstance(msg, Exception):
+                    logger.error(f"error_type={msg.__class__.__name__}, {msg=}")
+                    gracefully_shutdown()
+                else:
+                    logger.error(f"unrecognized message: {msg}")
+                    gracefully_shutdown()
+
             except queue.Empty:
                 pass
 
-            # check if all procs returned, then exit
-            if returned_procs >= procs or (
-                returned_threads > 0 and returned_threads >= active_connections
-            ):
-                if msg == "task_done":
-                    logger.info("Requested iteration/duration limit reached")
-                    gracefully_shutdown()
-                elif msg == "proc_returned":
-                    logger.debug("All procs returned")
-                    gracefully_shutdown(by_keyinterrupt=True)
-                elif isinstance(msg, Exception):
-                    logger.error(f"error_type={msg.__class__.__name__}, msg={msg}")
-                    sys.exit(1)
-                else:
-                    logger.error(f"unrecognized message: {msg}")
-                    sys.exit(1)
+            if sigterm_received:
+                gracefully_shutdown()
+
+            if task_done_threads > 0 and task_done_threads >= active_connections:
+                logger.info("Requested iteration/duration limit reached")
+                gracefully_shutdown()
 
             if time.time() >= report_time:
                 cpu_util = cpu_percent()
@@ -623,26 +609,8 @@ def supervisor(
     offset: int,
     id: int,
 ):
-    def gracefully_return(msg):
-        # wait for Threads to return before
-        # letting the Process MainThread return
-        # threading.enumerate()
-        for x in threads:
-            if x.is_alive():
-                from_proc_q.put("poison_pill")
-
-        for x in threads:
-            if x.is_alive():
-                x.join()
-
-        # send notification to MainThread
-        to_main_q.put(msg)
-
-        logger.debug(f"PROC-{id} terminated")
-        return
-
     logger.setLevel(log_level)
-    logger.debug(f"PROC-{id} started")
+    logger.debug(f"Supervisor-{id} started")
 
     threads: list[Thread] = []
     from_proc_q = mp.Queue()
@@ -653,12 +621,25 @@ def supervisor(
     while True:
         msg = from_main_q.get(block=True)
 
-        if msg == "proc_end":
-            logger.debug(f"PROC-{id} terminating...")
-            gracefully_return("proc_returned")
+        if msg == "poison_pill":
+            logger.debug(f"Supervisor-{id} terminating...")
+
+            # wait for Threads to return before
+            # letting the Supervisor MainThread return
+            for x in threads:
+                if x.is_alive():
+                    from_proc_q.put("poison_pill")
+
+            for x in threads:
+                if x.is_alive():
+                    x.join()
+
+            logger.debug(f"Supervisor-{id} terminated")
             return
+
         elif msg == "kill_one":
             from_proc_q.put("poison_pill")
+
         elif isinstance(msg, tuple):
             t = Thread(
                 target=worker,
@@ -695,14 +676,13 @@ def worker(
     concurrency: int = 0,
 ):
     def gracefully_return(msg):
-        # send notification to MainThread
-        to_main_q.put(msg)
         # send final stats
         to_main_q.put(ws.get_tdigest_ndarray(), block=False)
 
-        logger.debug(f"Thread ID {id} terminated")
+        # send notification to MainThread
+        to_main_q.put(msg)
 
-        return
+        logger.debug(f"Thread ID {id} returned")
 
     logger.setLevel(log_level)
 
@@ -728,6 +708,15 @@ def worker(
     to_main_q.put("init")
 
     while True:
+        # listen for termination messages (poison pill)
+        try:
+            from_proc_q.get(block=False)
+            logger.debug("Poison pill received, terminating...")
+            gracefully_return("got_killed")
+            return
+        except queue.Empty:
+            pass
+
         if conn_duration:
             # reconnect every conn_duration +/- 20%
             conn_endtime = time.time() + int(conn_duration * random.uniform(0.8, 1.2))
@@ -743,7 +732,6 @@ def worker(
                     run_init = False
 
                     if hasattr(w, "setup") and callable(w.setup):
-                        logger.debug("Executing setup() function")
                         run_transaction(
                             conn,
                             lambda conn: w.setup(
@@ -763,8 +751,9 @@ def worker(
                     # listen for termination messages (poison pill)
                     try:
                         from_proc_q.get(block=False)
-                        logger.debug("Poison pill received")
-                        return gracefully_return("got_killed")
+                        logger.debug("Poison pill received, terminating...")
+                        gracefully_return("got_killed")
+                        return
                     except queue.Empty:
                         pass
 
@@ -853,13 +842,13 @@ def listen_to_pipe(queues, ramp_time, procs, iterations_per_thread, concurrency)
     # https://stackoverflow.com/questions/39089776/python-read-named-pipe
 
     try:
-        os.mkfifo(FIFO)
+        os.mkfifo(DBWORKLOAD_PIPE)
     except OSError as oe:
         if oe.errno != errno.EEXIST:
             raise
 
     while True:
-        with open(FIFO) as fifo:
+        with open(DBWORKLOAD_PIPE) as fifo:
             for line in fifo:
                 try:
                     t = int(line)
