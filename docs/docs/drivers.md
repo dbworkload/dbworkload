@@ -58,7 +58,7 @@ pip3 install dbworkload[oracle]
 
 # sample use
 dbworkload run -w workloads/oracle/bank.py \
-  --uri "user=admin,password=password1,dsn="myhost.host2.us-east-1.rds.amazonaws.com:1521/OMS" \
+  --uri "user=admin,password=password1,dsn='myhost.host2.us-east-1.rds.amazonaws.com:1521/OMS'" \
   --driver oracle --args='{"read_pct":50}' -i 10
 ```
 
