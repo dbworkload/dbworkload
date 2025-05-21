@@ -15,7 +15,9 @@ import pandas as pd
 import plotext as plt
 import plotly.graph_objects as go
 import plotly.io as pio
+import re
 import sqlparse
+from typing import Dict, List, Any, Tuple, Union, Optional
 import yaml
 from jinja2 import Environment, PackageLoader
 from plotly.subplots import make_subplots
@@ -24,6 +26,8 @@ from pytdigest import TDigest
 import dbworkload
 import dbworkload.utils.common
 import dbworkload.utils.simplefaker
+from dbworkload.models.ddl_generator import generate_ddls, Column
+from dbworkload.models.workload_generator import generate_workload
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)
@@ -38,6 +42,8 @@ def util_csv(
     delimiter: str,
     http_server_hostname: str,
     http_server_port: str,
+    cloud_storage_uri: str,
+    cluster_url: str,
 ):
     """Wrapper around SimpleFaker to create CSV datasets
     given an input YAML data gen definition file
@@ -75,20 +81,57 @@ def util_csv(
 
     csv_files = os.listdir(output_dir)
 
-    for table_name in load.keys():
-        print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
+    if "gs://" in cloud_storage_uri:
+        try:
+            print(
+                "Attempting to upload files from ",
+                output_dir,
+                " to ",
+                cloud_storage_uri,
+            )
+            subprocess.run(
+                ["gsutil", "-m", "cp", "-r", output_dir, cloud_storage_uri], check=True
+            )
+            print(f"Successfully uploaded {output_dir} to {cloud_storage_uri}")
 
-        for s in dbworkload.utils.common.get_import_stmts(
-            [x for x in csv_files if x.startswith(table_name)],
-            table_name,
-            http_server_hostname,
-            http_server_port,
-            delimiter,
-            "",
-        ):
-            print(s, "\n")
+            try:
+                print("Attempting to IMPORT data")
+                for table_name in load.keys():
+                    for s in dbworkload.utils.common.get_import_stmts(
+                        [x for x in csv_files if x.startswith(table_name)],
+                        table_name,
+                        "",
+                        "",
+                        delimiter,
+                        "",
+                        cloud_storage_uri + "/" + str(output_dir),
+                    ):
+                        print("running cockroach to upload")
+                        subprocess.run(
+                            ["cockroach", "sql", "--url", cluster_url, "-e", s],
+                            check=True,
+                        )
+            except subprocess.CalledProcessError as err:
+                print(f"Error during IMPORT: {err}")
+        except subprocess.CalledProcessError as err:
+            print(f"Error during upload: {err}")
 
-        print()
+    else:
+        for table_name in load.keys():
+            print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
+
+            for s in dbworkload.utils.common.get_import_stmts(
+                [x for x in csv_files if x.startswith(table_name)],
+                table_name,
+                http_server_hostname,
+                http_server_port,
+                delimiter,
+                "",
+                "",
+            ):
+                print(s, "\n")
+
+            print()
 
 
 def util_yaml(input: PosixPath, output: PosixPath):
@@ -587,63 +630,189 @@ def util_gen_stub(input_file: PosixPath):
     out = os.path.join(input_file.parent, input_file.stem + ".py")
 
     with open(input_file, "r") as f:
-        lines = f.read()
+        content = f.read()
 
-    # remove all the multiline comments
-    # delimited by /* and */
+    # Remove all multiline comments (/* ... */)
     while True:
-        i = lines.find("/*")
-        j = lines.find("*/")
-
+        i = content.find("/*")
+        j = content.find("*/")
         if i < 0:
             break
-        lines = lines[:i] + lines[j + 2 :]
+        content = content[:i] + content[j + 2 :]
 
-    # given the whole ddl string,
-    # line by line, remove empty lines and
-    # all the comment lines
-    # and return a list of lines, stripped of any whitespace
-    stmts = []
+    # Remove line comments (--) and empty lines
+    cleaned_lines = []
+    for line in content.split("\n"):
+        line = line.strip()
+        comment_index = line.find("--")
+        if comment_index >= 0:
+            line = line[:comment_index]
+        if line:
+            cleaned_lines.append(line)
+    clean_ddl = " ".join(cleaned_lines)
 
-    for s in lines.split("\n"):
-        s = s.strip()
-
-        i = s.find("--")
-        if i >= 0:
-            s = s[:i]
-
-        if s:
-            stmts.append(s)
-
-    # rejoin the lines into a new, clean ddl string
-    clean_ddl = " ".join(stmts)
-
-    # split the clean string by semicolon to get a list
-    # of SQL statements
-    stmts = [s.strip() for s in clean_ddl.split(";") if len(s) > 0]
+    # Determine if the file uses explicit BEGIN/COMMIT boundaries
+    if "begin" in clean_ddl.lower() and "commit" in clean_ddl.lower():
+        transactions = []
+        current_txn = []
+        inside_txn = False
+        # First split on semicolon; note that semicolons inside a transaction will still separate the statements.
+        raw_stmts = [stmt.strip() for stmt in clean_ddl.split(";") if stmt.strip()]
+        for stmt in raw_stmts:
+            lower_stmt = stmt.lower()
+            if not inside_txn:
+                if lower_stmt.startswith("begin"):
+                    # Start a new transaction block
+                    inside_txn = True
+                    current_txn = [stmt]
+                else:
+                    # Statement outside any transaction block, treat as an independent transaction
+                    transactions.append(stmt)
+            else:
+                current_txn.append(stmt)
+                if lower_stmt.startswith("commit"):
+                    # End the current transaction block
+                    inside_txn = False
+                    # Join all parts of the transaction into one string.
+                    transactions.append(";".join(current_txn) + ";")
+                    current_txn = []
+        # If we ended with an unclosed transaction, add what we have.
+        if inside_txn and current_txn:
+            transactions.append(" ; ".join(current_txn))
+    else:
+        # No BEGIN/COMMIT markers; treat each semicolon-separated statement as a transaction.
+        transactions = [stmt.strip() for stmt in clean_ddl.split(";") if stmt.strip()]
 
     model = {}
-    model["txn_count"] = len(stmts)
-
+    model["txn_count"] = len(transactions)
     model["name"] = input_file.name.split(".")[0].capitalize()
-
     model["txns"] = [
-        sqlparse.format(x, reindent=True, keyword_case="upper") for x in stmts
+        sqlparse.format(
+            re.sub(r":-:\|.*?\|:-:", "%s", txn), reindent=True, keyword_case="upper"
+        )
+        for txn in transactions
     ]
 
-    phs = []
     txn_type = []
-
-    for x in stmts:
-        phs.append(x.count("%s"))
+    model["bind_params"] = []
+    for txn in transactions:
         txn_type.append(
-            x.lower().startswith("select") or x.lower().find("returning") > 0
+            txn.lower().startswith("select") or txn.lower().find("returning") > 0
         )
-
-    model["bind_params"] = phs
+        statements = txn.split(";")
+        stmt_placeholder = []
+        for stmt in statements:
+            placeholders = re.findall(r":-:\|(.*?)\|:-:", stmt)
+            stmt_placeholder.append(placeholders)
+        model["bind_params"].append(stmt_placeholder)
     model["txn_type"] = txn_type
 
     with open(out, "w") as f:
         f.write(template.render(model=model))
 
     logger.info(f"Saved stub '{out}'")
+# This code has been moved to workload.py
+
+# TODO: move this out of the util file into a separate zip file
+def init(zip_dir: PosixPath, db_name, cloud_storage_uri, cluster_url, anonymize):
+    if anonymize:
+        ddl_file_name = db_name + ".anonymize.schema.sql"
+    else:
+        ddl_file_name = db_name + ".schema.sql"
+
+    sql_file_name = db_name + ".sql"
+    yaml_file_name = db_name + ".yaml"
+
+    # Generate the DDL file.
+    all_schemas, mapping = generate_ddls(
+        zip_dir, db_name, os.path.curdir, cluster_url, ddl_file_name, anonymize
+    )
+
+    # # Generate the YAML file.
+    util_yaml(ddl_file_name, yaml_file_name)
+
+    # Generate the CSV file.
+    # TODO: We should parameterize the values we're passing in below, so that
+    #  users can set them themselves.
+    util_csv(
+        yaml_file_name,
+        db_name,
+        "",
+        1,
+        1000000,
+        "\t",
+        "localhost",
+        26257,
+        "",
+        "",
+    )
+
+    generate_workload(zip_dir, all_schemas, str(db_name), os.path.curdir, mapping)
+    util_gen_stub(PosixPath(sql_file_name))
+    return
+
+
+def list_databases(zip_content_location):
+    create_statement_file_name = "crdb_internal.create_statements.txt"
+    file_path = os.path.join(zip_content_location, create_statement_file_name)
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Could not find create_statements file: " + file_path)
+
+    with open(file_path, mode="r", newline="", encoding="utf-8") as cs_file:
+        # Use the csv reader for tab-separated data.
+        # If your data has embedded quotes/tabs/newlines, you may need more robust settings.
+        reader = csv.reader(cs_file, delimiter="\t", quotechar='"')
+
+        # Attempt to read the header.
+        header = next(reader, None)
+        if not header:
+            raise ValueError("create_statement file is empty or missing a header row.")
+
+        # Build a mapping of column names to their indices.
+        column_index = {col: i for i, col in enumerate(header)}
+
+        # Validate required columns exist.
+        required_columns = [
+            "database_name",
+            "create_statement",
+            "schema_name",
+            "descriptor_type",
+            "descriptor_name",
+        ]
+
+        for col in required_columns:
+            if col not in column_index:
+                raise ValueError(f"Missing expected column '{col}' in CS header.")
+
+        seen_databases = set()
+
+        for record in reader:
+            # Only process rows for the given db_name and tables.
+            if (
+                record[column_index["descriptor_type"]] == "table"
+                and record[column_index["schema_name"]] == "public"
+            ):
+
+                database_name = record[column_index["database_name"]]
+
+                # If this is the first time seeing this table, remember its order.
+                if (
+                    database_name not in seen_databases
+                    and "system" not in database_name
+                    and "crdb_internal" not in database_name
+                ):
+                    seen_databases.add(database_name)
+
+        print("Databases found in debug zip:\n")
+        for db in seen_databases:
+            print("* ", db)
+        return
+
+
+def zip_list(zip_dir: PosixPath):
+    # Generate the DDL file.
+    # TODO: this function should take the ouptut_file name.
+    list_databases(zip_dir)
+
+    return
