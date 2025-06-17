@@ -17,7 +17,7 @@ classifiers = [
 dbworkload = 'dbworkload.cli.main:app'
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.11"
 pandas = "*"
 tabulate = "*"
 numpy = "*"
@@ -50,6 +50,11 @@ odbc = ["pyodbc"]
 mongo = ["pymongo"]
 cassandra = ["cassandra-driver"]
 spanner = ["google-cloud-spanner"]
+
+[tool.poetry.group.dev.dependencies]
+mkdocs = "^1.6.1"
+mkdocs-material = "^9.6.14"
+mkdocs-click = "^0.9.0"
 
 [build-system]
 requires = ["poetry-core"]
