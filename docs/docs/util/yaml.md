@@ -410,5 +410,5 @@ ec8d601c-2500-4f6e-9fc6-697634f4bcd8    877c814b-66b2-48f3-8d2e-80cbbd74cdb7    
 
 ## See also
 
-- [`dbworkload util yaml`](../cli.md#dbworkload-util-yaml)
-- [Seed the database tables](../getting_started/2.md)
+- [`dbworkload util yaml`](../../docs/cli.md#dbworkload-util-yaml)
+- [Seed the database tables](../../getting_started/2.md)

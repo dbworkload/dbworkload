@@ -15,9 +15,9 @@ dbworkload util plot -i Bank.20241021_145825.csv
 
 The output is displayed right on the terminal
 
-![plot](../getting_started/media//plot.png)
+![plot](../../getting_started/media/plot.png)
 
 ## See also
 
-- [`dbworkload util plot`](../cli.md#dbworkload-util-plot)
-- [Plot the metrics](../getting_started/7.md)
+- [`dbworkload util plot`](../../docs/cli.md#dbworkload-util-plot)
+- [Plot the metrics](../../getting_started/7.md)

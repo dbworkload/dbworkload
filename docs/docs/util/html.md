@@ -14,9 +14,9 @@
 
 2. Open resulting file `Bank.20241021_145825.html` in your browser
 
-    ![html](../getting_started/media//html.png)
+    ![html](../../getting_started/media//html.png)
 
 ## See also
 
-- [`dbworkload util html`](../cli.md#dbworkload-util-html)
-- [Plot the metrics](../getting_started/7.md)
+- [`dbworkload util html`](../../docs/cli.md#dbworkload-util-html)
+- [Plot the metrics](../../getting_started/7.md)
