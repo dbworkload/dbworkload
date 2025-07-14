@@ -19,7 +19,10 @@ class Kv:
         self.table_name: str = args.get("table_name", "kv")
         self.key_types: list = args.get("key_types", "bytes").split(",")
         self.key_sizes: list = [
-            int(x) if x else None for x in str(args.get("key_sizes", "32")).split(",")
+            int(x) if x else None
+            for x in str(
+                args.get("key_sizes", ",".join(["32" for kt in self.key_types]))
+            ).split(",")
         ]
         self.value_types: list = args.get("value_types", "bytes").split(",")
         self.value_sizes: list = [
