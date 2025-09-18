@@ -96,6 +96,9 @@ def util_csv(
         delimiter=delimiter,
         http_server_hostname=http_server_hostname,
         http_server_port=http_server_port,
+        # Cloud storage upload not currently externalized through util csv
+        cloud_storage_uri="",
+        cluster_url="",
     )
 
 
