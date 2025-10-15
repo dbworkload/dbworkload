@@ -16,22 +16,15 @@ Generally, you want to specify which of the [supported drivers](drivers.md) you 
 
 In below example, we install with the **Psycopg3** driver, so we run
 
-### Stable
-
 ```bash
-pip3 install dbworkload[postgres]==0.6.5
-```
+# you must use pipx on latest Ubuntu
+apt update
+apt install -y python3-pip pipx
 
-### Latest
+pip3 install --upgrade pip
 
-The latest version features:
-
-- Schedule
-- `--max-rate`
-- adding/removing connections at runtime
-
-```bash
-pip3 install dbworkload[postgres]
+pipx install dbworkload[postgres]
+pipx ensurepath
 ```
 
 Confirm installation is successful by running
