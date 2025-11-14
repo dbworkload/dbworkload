@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dbworkload"
-version = "0.9.1"
+version = "0.10.0"
 description = "Workload framework"
 authors = ["Fabio Ghirardello"]
 license = "GPLv3+"
