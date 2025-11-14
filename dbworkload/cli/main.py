@@ -42,7 +42,7 @@ app = typer.Typer(
 )
 
 
-app.add_typer(dbworkload.cli.util.app, name="util")
+app.add_typer(dbworkload.cli.util.util_app, name="util")
 
 version: bool = typer.Option(True)
 

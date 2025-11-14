@@ -1,15 +1,17 @@
 #!/usr/bin/python
 
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import typer
 
-import dbworkload.models.run
 import dbworkload.models.util
-import dbworkload.utils.common
 from dbworkload.cli.dep import EPILOG, Param
+
+# import cloud_instance.cli.util
+from ..models.convert import ConvertTool
 
 
 class Compression(str, Enum):
@@ -19,14 +21,14 @@ class Compression(str, Enum):
     zip = "zip"
 
 
-app = typer.Typer(
+util_app = typer.Typer(
     epilog=EPILOG,
     no_args_is_help=True,
     help="Various utils.",
 )
 
 
-@app.command(
+@util_app.command(
     "csv",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -99,7 +101,7 @@ def util_csv(
     )
 
 
-@app.command(
+@util_app.command(
     "yaml",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -135,7 +137,7 @@ def util_yaml(
     dbworkload.models.util.util_yaml(input=input, output=output)
 
 
-@app.command(
+@util_app.command(
     "merge_sort",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -178,7 +180,7 @@ def util_sort_merge(
     dbworkload.models.util.util_merge_sort(input, output, csv_max_rows, compress)
 
 
-@app.command(
+@util_app.command(
     "plot",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -201,7 +203,7 @@ def util_plot(
     dbworkload.models.util.util_plot(input)
 
 
-@app.command(
+@util_app.command(
     "html",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -224,7 +226,7 @@ def util_html(
     dbworkload.models.util.util_html(input)
 
 
-@app.command(
+@util_app.command(
     "merge_csvs",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -247,7 +249,7 @@ def util_merge_csvs(
     dbworkload.models.util.util_merge_csvs(input_dir)
 
 
-@app.command(
+@util_app.command(
     "gen_stub",
     epilog=EPILOG,
     no_args_is_help=True,
@@ -268,3 +270,61 @@ def util_gen_stub(
     ),
 ):
     dbworkload.models.util.util_gen_stub(input_file)
+
+
+@util_app.command(
+    name="convert",
+    help="Convert from PL to PL/pgSQL",
+    no_args_is_help=True,
+)
+def cli_convert(
+    base_dir: Optional[Path] = typer.Option(
+        ".",
+        "--dir",
+        "-d",
+        help="Directory path",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        writable=False,
+        readable=True,
+        resolve_path=True,
+    ),
+    uri: str = typer.Option(
+        None,
+        "--uri",
+        help="The connection URI to the database.",
+    ),
+    root_file: Optional[str] = typer.Option(
+        None,
+        "--root-file",
+        "-r",
+        help="The root_file. Leave empty for processing all *.ddl files.",
+    ),
+    generator_llm: Optional[str] = typer.Option(
+        "Ollama:llama3.2:3b",
+        "--generator-llm",
+        "-g",
+        help="The generator provider:model_name",
+    ),
+    refiner_llm: Optional[str] = typer.Option(
+        "OpenAI:gpt-5",
+        "--refiner-llm",
+        "-n",
+        help="The refiner provider:model_name.",
+    ),
+):
+
+    try:
+        ConvertTool(
+            base_dir,
+            uri,
+            root_file,
+            generator_llm,
+            refiner_llm,
+            # seed,
+            # seed_each_time,
+        ).run()
+    except Exception as e:
+        print(e, file=sys.stderr)
+        typer.Exit(1)
