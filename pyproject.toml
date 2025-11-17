@@ -36,6 +36,8 @@ google-cloud-spanner = {version = "*", optional = true}
 langchain-core = { version = "^1.0.5", optional = true }
 langchain-openai = { version = "^1.0.2", optional = true }
 langchain-ollama = { version = "^1.0.0", optional = true }
+fastembed = {"^0.7.3", optional = true }
+pgvector = {"^0.4.1", optional = true }
 langgraph = { version = "^1.0.3", optional = true }
 openai = { version = "^2.8.0", optional = true }
 pytdigest = "*"
@@ -46,7 +48,7 @@ sqlparse = "*"
 psutil = "^7.0.0"
 
 [tool.poetry.extras]
-all =  ["psycopg", "psycopg-binary", "mysql-connector-python", "mariadb", "oracledb", "pyodbc", "pymongo", "cassandra-driver", "google-cloud-spanner"]
+all =  ["psycopg", "psycopg-binary", "mysql-connector-python", "mariadb", "oracledb", "pyodbc", "pymongo", "cassandra-driver", "google-cloud-spanner", "convert"]
 postgres = ["psycopg", "psycopg-binary"]
 mysql = ["mysql-connector-python"]
 mariadb = ["mariadb"]
@@ -60,7 +62,9 @@ convert = [
   "langchain-openai",
   "langchain-ollama",
   "langgraph",
-  "openai"
+  "openai",
+  "fastembed",
+  "pgvector"
 ]
 
 [tool.poetry.group.dev.dependencies]

@@ -267,17 +267,19 @@ Variables cannot be accessed using the label.var_name pattern.
 3. Prefer **explicit BEGIN/COMMIT** for multiple DMLs.
 4. Replace unsupported Oracle constructs with **documented CockroachDB equivalents or TODO comments**.
 5. Ensure output String is machine-readable (no comments or extra text).
-
+6. **Prioritize Context:** You MUST use the provided conversion examples in the [CONVERSION EXAMPLES] section as your primary reference for syntax, function mapping, and style.
 
 ---
 
 Return only the converted procedure as a plain string.
 Do not add any comments or notes to the response.
 
-SOURCE ORACLE PL/SQL:
+[CONVERSION EXAMPLES]
+
 ---
-{oracle_code}
+{retrieved_examples}
 ---
+
 """
 
 
@@ -286,17 +288,6 @@ You are a senior database migration expert.
 Your job is to refine a previously converted Oracle PL/SQL stored procedure 
 into CockroachDB-compatible PL/pgSQL, fixing any issues reported by the database.
 
-You will receive:
-
-The conversion from Oracle PL/SQL resulted in the following error:
----
-{validation_error}
----
-
-The current INCORRECT code block is:
----
-{converted_code}
----
 
 ### **Your Goal**
 
@@ -305,6 +296,8 @@ Diagnose the failure precisely (syntax vs semantic vs unsupported feature).
 Produce a corrected CockroachDB version that compiles and is semantically equivalent to Oracle logic, or give the closest safe alternative if exact behavior isn’t supported.
 
 Preserve transactional behavior and required refactoring rules.
+
+DO NOT include any comments, explanatory text, markdown code fences (```sql), or anything else outside the executable code.
 
 ### Be aware of the following CockroachDB Limitation
 
@@ -407,7 +400,9 @@ Now: analyze the inputs, fix the issues, and provide the full, corrected and ref
 
 **Output (CockroachDB PL/pgSQL):**
 
-Output in String format.
+Output in String format. 
+Return ONLY the converted procedure as a plain string.
+Do not add any comments or notes to the response.
 
 Example:
 
@@ -415,4 +410,5 @@ Example:
 CREATE OR REPLACE PROCEDURE proc_name(arg1 INT, arg2 STRING) LANGUAGE SQL AS $$ BEGIN BEGIN; UPDATE t SET c = c + 1 WHERE id = arg1; INSERT INTO u(id, name) VALUES (arg1, arg2) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name; COMMIT; END $$;
 ---
 
+Your final output must be nothing but the raw CockroachDB PL/pgSQL code."
 """
