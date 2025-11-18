@@ -142,6 +142,7 @@ files = [
     {file = "certifi-2025.11.12-py3-none-any.whl", hash = "sha256:97de8790030bbd5c2d96b7ec782fc2f7820ef8dba6db909ccf95449f2d062d4b"},
     {file = "certifi-2025.11.12.tar.gz", hash = "sha256:d8ab5478f2ecd78af242878415affce761ca6bc54a22a27e026d7c25357c3316"},
 ]
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"convert\""}
 
 [[package]]
 name = "cffi"
@@ -363,6 +364,7 @@ files = [
     {file = "charset_normalizer-3.4.4-py3-none-any.whl", hash = "sha256:7a32c560861a02ff789ad905a2fe94e3f840803362c84fecf1851cb4cf3dc37f"},
     {file = "charset_normalizer-3.4.4.tar.gz", hash = "sha256:94537985111c35f28720e43603b8e7b43a6ecfb2ce1d3058bbe955b73404e21a"},
 ]
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"convert\""}
 
 [[package]]
 name = "click"
@@ -390,15 +392,16 @@ files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
-markers = {main = "platform_system == \"Windows\" or sys_platform == \"win32\""}
+markers = {main = "extra == \"convert\" and sys_platform == \"win32\" or platform_system == \"Windows\""}
 
 [[package]]
 name = "coloredlogs"
 version = "15.0.1"
 description = "Colored terminal output for Python's logging module"
-optional = false
+optional = true
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "coloredlogs-15.0.1-py2.py3-none-any.whl", hash = "sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934"},
     {file = "coloredlogs-15.0.1.tar.gz", hash = "sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0"},
@@ -527,9 +530,10 @@ wmi = ["wmi (>=1.5.1) ; platform_system == \"Windows\""]
 name = "fastembed"
 version = "0.7.3"
 description = "Fast, light, accurate library built for retrieval embedding generation"
-optional = false
+optional = true
 python-versions = ">=3.9.0"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "fastembed-0.7.3-py3-none-any.whl", hash = "sha256:a377b57843abd773318042960be39f1aef29827530acb98b035a554742a85cdf"},
     {file = "fastembed-0.7.3.tar.gz", hash = "sha256:04e95eb5ccc706513166c23bf8e5429ed160c5783b7b11514431a77624d480a5"},
@@ -558,9 +562,10 @@ tqdm = ">=4.66,<5.0"
 name = "filelock"
 version = "3.20.0"
 description = "A platform independent file lock."
-optional = false
+optional = true
 python-versions = ">=3.10"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "filelock-3.20.0-py3-none-any.whl", hash = "sha256:339b4732ffda5cd79b13f4e2711a31b0365ce445d95d243bb996273d072546a2"},
     {file = "filelock-3.20.0.tar.gz", hash = "sha256:711e943b4ec6be42e1d4e6690b48dc175c822967466bb31c0c293f34334c13f4"},
@@ -570,9 +575,10 @@ files = [
 name = "flatbuffers"
 version = "25.9.23"
 description = "The FlatBuffers serialization format for Python"
-optional = false
+optional = true
 python-versions = "*"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "flatbuffers-25.9.23-py2.py3-none-any.whl", hash = "sha256:255538574d6cb6d0a79a17ec8bc0d30985913b87513a01cce8bcdb6b4c44d0e2"},
     {file = "flatbuffers-25.9.23.tar.gz", hash = "sha256:676f9fa62750bb50cf531b42a0a2a118ad8f7f797a511eda12881c016f093b12"},
@@ -582,9 +588,10 @@ files = [
 name = "fsspec"
 version = "2025.10.0"
 description = "File-system specification"
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "fsspec-2025.10.0-py3-none-any.whl", hash = "sha256:7c7712353ae7d875407f97715f0e1ffcc21e33d5b24556cb1e090ae9409ec61d"},
     {file = "fsspec-2025.10.0.tar.gz", hash = "sha256:b6789427626f068f9a83ca4e8a3cc050850b6c0f71f99ddb4f542b8266a26a59"},
@@ -933,10 +940,10 @@ files = [
 name = "hf-xet"
 version = "1.2.0"
 description = "Fast transfer of large files with the Hugging Face Hub."
-optional = false
+optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"arm64\" or platform_machine == \"aarch64\""
+markers = "extra == \"convert\" and (platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"arm64\" or platform_machine == \"aarch64\")"
 files = [
     {file = "hf_xet-1.2.0-cp313-cp313t-macosx_10_12_x86_64.whl", hash = "sha256:ceeefcd1b7aed4956ae8499e2199607765fbd1c60510752003b6cc0b8413b649"},
     {file = "hf_xet-1.2.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:b70218dd548e9840224df5638fdc94bd033552963cfa97f9170829381179c813"},
@@ -1018,9 +1025,10 @@ zstd = ["zstandard (>=0.18.0)"]
 name = "huggingface-hub"
 version = "0.36.0"
 description = "Client library to download and publish models, datasets and other repos on the huggingface.co hub"
-optional = false
+optional = true
 python-versions = ">=3.8.0"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "huggingface_hub-0.36.0-py3-none-any.whl", hash = "sha256:7bcc9ad17d5b3f07b57c78e79d527102d08313caa278a641993acddcb894548d"},
     {file = "huggingface_hub-0.36.0.tar.gz", hash = "sha256:47b3f0e2539c39bf5cde015d63b72ec49baff67b6931c3d97f3f84532e2b8d25"},
@@ -1057,9 +1065,10 @@ typing = ["types-PyYAML", "types-requests", "types-simplejson", "types-toml", "t
 name = "humanfriendly"
 version = "10.0"
 description = "Human friendly output for text interfaces using Python"
-optional = false
+optional = true
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "humanfriendly-10.0-py2.py3-none-any.whl", hash = "sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477"},
     {file = "humanfriendly-10.0.tar.gz", hash = "sha256:6b0b831ce8f15f7300721aa49829fc4e83921a9a301cc7f606be6686a2288ddc"},
@@ -1079,6 +1088,7 @@ files = [
     {file = "idna-3.11-py3-none-any.whl", hash = "sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea"},
     {file = "idna-3.11.tar.gz", hash = "sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902"},
 ]
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"convert\""}
 
 [package.extras]
 all = ["flake8 (>=7.1.1)", "mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2)"]
@@ -1406,9 +1416,10 @@ vcr = ["vcrpy (>=7.0.0)"]
 name = "loguru"
 version = "0.7.3"
 description = "Python logging made (stupidly) simple"
-optional = false
+optional = true
 python-versions = "<4.0,>=3.5"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "loguru-0.7.3-py3-none-any.whl", hash = "sha256:31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c"},
     {file = "loguru-0.7.3.tar.gz", hash = "sha256:19480589e77d47b8d85b2c827ad95d49bf31b0dcde16593892eb51dd18706eb6"},
@@ -1721,9 +1732,10 @@ files = [
 name = "mmh3"
 version = "5.2.0"
 description = "Python extension for MurmurHash (MurmurHash3), a set of fast and robust hash functions."
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "mmh3-5.2.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:81c504ad11c588c8629536b032940f2a359dda3b6cbfd4ad8f74cb24dcd1b0bc"},
     {file = "mmh3-5.2.0-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:0b898cecff57442724a0f52bf42c2de42de63083a91008fb452887e372f9c328"},
@@ -1860,9 +1872,10 @@ type = ["mypy (==1.17.0)"]
 name = "mpmath"
 version = "1.3.0"
 description = "Python library for arbitrary-precision floating-point arithmetic"
-optional = false
+optional = true
 python-versions = "*"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "mpmath-1.3.0-py3-none-any.whl", hash = "sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c"},
     {file = "mpmath-1.3.0.tar.gz", hash = "sha256:7a28eb2a9774d00c7bc92411c19a89209d5da7c4c9a9e227be8330a23a25b91f"},
@@ -2048,9 +2061,10 @@ pydantic = ">=2.9"
 name = "onnxruntime"
 version = "1.23.2"
 description = "ONNX Runtime is a runtime accelerator for Machine Learning models"
-optional = false
+optional = true
 python-versions = ">=3.10"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "onnxruntime-1.23.2-cp310-cp310-macosx_13_0_arm64.whl", hash = "sha256:a7730122afe186a784660f6ec5807138bf9d792fa1df76556b27307ea9ebcbe3"},
     {file = "onnxruntime-1.23.2-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:b28740f4ecef1738ea8f807461dd541b8287d5650b5be33bca7b474e3cbd1f36"},
@@ -2466,9 +2480,10 @@ files = [
 name = "pgvector"
 version = "0.4.1"
 description = "pgvector support for Python"
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "pgvector-0.4.1-py3-none-any.whl", hash = "sha256:34bb4e99e1b13d08a2fe82dda9f860f15ddcd0166fbb25bffe15821cbfeb7362"},
     {file = "pgvector-0.4.1.tar.gz", hash = "sha256:83d3a1c044ff0c2f1e95d13dfb625beb0b65506cfec0941bfe81fd0ad44f4003"},
@@ -2481,9 +2496,10 @@ numpy = "*"
 name = "pillow"
 version = "11.3.0"
 description = "Python Imaging Library (Fork)"
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "pillow-11.3.0-cp310-cp310-macosx_10_10_x86_64.whl", hash = "sha256:1b9c17fd4ace828b3003dfd1e30bff24863e0eb59b535e8f80194d9cc7ecf860"},
     {file = "pillow-11.3.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:65dc69160114cdd0ca0f35cb434633c75e8e7fad4cf855177a05bf38678f73ad"},
@@ -2698,9 +2714,10 @@ testing = ["google-api-core (>=1.31.5)"]
 name = "protobuf"
 version = "6.33.1"
 description = ""
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main"]
+markers = "extra == \"convert\" or extra == \"all\" or extra == \"spanner\""
 files = [
     {file = "protobuf-6.33.1-cp310-abi3-win32.whl", hash = "sha256:f8d3fdbc966aaab1d05046d0240dd94d40f2a8c62856d41eaa141ff64a79de6b"},
     {file = "protobuf-6.33.1-cp310-abi3-win_amd64.whl", hash = "sha256:923aa6d27a92bf44394f6abf7ea0500f38769d4b07f4be41cb52bd8b1123b9ed"},
@@ -2849,9 +2866,10 @@ files = [
 name = "py-rust-stemmers"
 version = "0.1.5"
 description = "Fast and parallel snowball stemmer"
-optional = false
+optional = true
 python-versions = "*"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "py_rust_stemmers-0.1.5-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:bfbd9034ae00419ff2154e33b8f5b4c4d99d1f9271f31ed059e5c7e9fa005844"},
     {file = "py_rust_stemmers-0.1.5-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:c7162ae66df2bb0fc39b350c24a049f5f5151c03c046092ba095c2141ec223a2"},
@@ -3328,10 +3346,10 @@ files = [
 name = "pyreadline3"
 version = "3.5.4"
 description = "A python implementation of GNU readline."
-optional = false
+optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "sys_platform == \"win32\""
+markers = "sys_platform == \"win32\" and extra == \"convert\""
 files = [
     {file = "pyreadline3-3.5.4-py3-none-any.whl", hash = "sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6"},
     {file = "pyreadline3-3.5.4.tar.gz", hash = "sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7"},
@@ -3618,6 +3636,7 @@ files = [
     {file = "requests-2.32.5-py3-none-any.whl", hash = "sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6"},
     {file = "requests-2.32.5.tar.gz", hash = "sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf"},
 ]
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"convert\""}
 
 [package.dependencies]
 certifi = ">=2017.4.17"
@@ -3737,9 +3756,10 @@ doc = ["sphinx"]
 name = "sympy"
 version = "1.14.0"
 description = "Computer algebra system (CAS) in Python"
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5"},
     {file = "sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517"},
@@ -3862,9 +3882,10 @@ blobfile = ["blobfile (>=2)"]
 name = "tokenizers"
 version = "0.22.1"
 description = ""
-optional = false
+optional = true
 python-versions = ">=3.9"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "tokenizers-0.22.1-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:59fdb013df17455e5f950b4b834a7b3ee2e0271e6378ccb33aa74d178b513c73"},
     {file = "tokenizers-0.22.1-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:8d4e484f7b0827021ac5f9f71d4794aaef62b979ab7608593da22b1d2e3c4edc"},
@@ -3895,9 +3916,10 @@ testing = ["black (==22.3)", "datasets", "numpy", "pytest", "pytest-asyncio", "r
 name = "tqdm"
 version = "4.67.1"
 description = "Fast, Extensible Progress Meter"
-optional = false
+optional = true
 python-versions = ">=3.7"
 groups = ["main"]
+markers = "extra == \"convert\""
 files = [
     {file = "tqdm-4.67.1-py3-none-any.whl", hash = "sha256:26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2"},
     {file = "tqdm-4.67.1.tar.gz", hash = "sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2"},
@@ -3982,6 +4004,7 @@ files = [
     {file = "urllib3-2.5.0-py3-none-any.whl", hash = "sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc"},
     {file = "urllib3-2.5.0.tar.gz", hash = "sha256:3fc47733c7e419d4bc3f6b3dc2b4f890bb743906a30d56ba4a5bfa4bbff92760"},
 ]
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"convert\""}
 
 [package.extras]
 brotli = ["brotli (>=1.0.9) ; platform_python_implementation == \"CPython\"", "brotlicffi (>=0.8.0) ; platform_python_implementation != \"CPython\""]
@@ -4036,10 +4059,10 @@ watchmedo = ["PyYAML (>=3.10)"]
 name = "win32-setctime"
 version = "1.2.0"
 description = "A small Python utility to set file creation time on Windows"
-optional = false
+optional = true
 python-versions = ">=3.5"
 groups = ["main"]
-markers = "sys_platform == \"win32\""
+markers = "extra == \"convert\" and sys_platform == \"win32\""
 files = [
     {file = "win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390"},
     {file = "win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0"},
@@ -4315,7 +4338,7 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [extras]
 all = ["cassandra-driver", "google-cloud-spanner", "mariadb", "mysql-connector-python", "oracledb", "psycopg", "psycopg-binary", "pymongo", "pyodbc"]
 cassandra = ["cassandra-driver"]
-convert = ["langchain-core", "langchain-ollama", "langchain-openai", "langgraph", "openai"]
+convert = ["fastembed", "langchain-core", "langchain-ollama", "langchain-openai", "langgraph", "openai", "pgvector"]
 mariadb = ["mariadb"]
 mongo = ["pymongo"]
 mysql = ["mysql-connector-python"]
@@ -4327,4 +4350,4 @@ spanner = ["google-cloud-spanner"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "c6c4ab11832eba646ab837da2c188bf2ed221470cba78171f2265f4bd2b05ad7"
+content-hash = "c37d6b4eb964c18386ff93be8be1410c487db24fc48c8624ba7e98204195b9e8"

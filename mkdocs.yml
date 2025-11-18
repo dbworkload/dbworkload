@@ -104,6 +104,7 @@ nav:
         - docs/util/html.md
         - docs/util/plot.md
         - docs/util/merge_csvs.md
+        - docs/util/convert.md
     - docs/cli.md
   - faq.md
   - about.md
