@@ -1,13 +1,18 @@
-import datetime as dt
 import json
 import logging
 import os
+import time
+from binascii import crc32
 from typing import Any, TypedDict
 
 import openai
 import psycopg
 import sqlparse
 import yaml
+
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "false"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 from fastembed import TextEmbedding
 from langchain_core.callbacks import get_usage_metadata_callback
 from langchain_core.documents import Document
@@ -19,12 +24,46 @@ from langgraph.graph import END, StateGraph
 from pgvector.psycopg import Vector, register_vector
 from psycopg.rows import dict_row
 
+from ..utils.common import CustomLogFilter
 from .prompts import REFINER_PROMPT, SYSTEM_PROMPT
 
 # setup global logger
 logger = logging.getLogger("dbworkload")
 
+logger.removeHandler(logger.handlers[0])
+
+sh = logging.StreamHandler()
+
+sh.addFilter(CustomLogFilter())
+
+formatter = logging.Formatter(
+    # NOTE: Changed from %(lineno)d to %(padded_lineno)s
+    "%(asctime)s [%(level_char)s] %(module)s:%(padded_lineno)s: %(message)s",
+)
+
+# set the formatter to use UTC and show microseconds
+formatter.converter = time.gmtime
+formatter.default_msec_format = "%s.%06d"
+
+sh.setFormatter(formatter)
+logger.addHandler(sh)
+
 openai.api_key = os.getenv("OPENAI_API_KEY")  # or set it directly if needed
+
+
+def get_llm(provider: str, model: str) -> ChatOllama | ChatOpenAI | None:
+
+    if provider.lower() == "openai":
+        return ChatOpenAI(
+            model=model,
+            temperature=0.1,
+        )
+
+    if provider.lower() == "ollama":
+        return ChatOllama(
+            model=model,
+            temperature=0.1,
+        )
 
 
 class CockroachDBVectorStore:
@@ -45,21 +84,26 @@ class CockroachDBVectorStore:
                 model = TextEmbedding("BAAI/bge-small-en-v1.5")
                 embeddings = list(model.embed(query))
 
-                v = str(embeddings[0].tolist())
+                v = Vector(embeddings[0].tolist())
 
                 try:
                     with psycopg.connect(self.uri, autocommit=True) as conn:
                         register_vector(conn)  # teach psycopg how to adapt vectors
                         with conn.cursor() as cur:
                             rs = cur.execute(
-                                "SELECT query_combo FROM queries ORDER BY crdb_query_embedding <-> %s::vector LIMIT 3;",
+                                """
+                                SELECT query_combo 
+                                FROM defaultdb.public.queries 
+                                ORDER BY src_query_embedding <-> %s 
+                                LIMIT 3;
+                                """,
                                 (v,),
                             ).fetchall()
 
-                            logger.info(f"🪳 🟢 {cur.statusmessage}")
+                            logger.info(f"🪳  🟢 {cur.statusmessage}")
 
                 except Exception as e:
-                    logger.error(str(e))
+                    logger.error(f"🪳  🔴 {str(e)}")
 
                     return []
 
@@ -74,21 +118,6 @@ class CockroachDBVectorStore:
                 return z
 
         return CockroachDBRetriever(self.uri)
-
-
-def get_llm(provider: str, model: str) -> ChatOllama | ChatOpenAI | None:
-
-    if provider.lower() == "openai":
-        return ChatOpenAI(
-            model=model,
-            temperature=0.1,
-        )
-
-    if provider.lower() == "ollama":
-        return ChatOllama(
-            model=model,
-            temperature=0.1,
-        )
 
 
 class ConversionState(TypedDict):
@@ -133,46 +162,6 @@ class ConvertTool:
 
         self.generator_llm = get_llm(*generator_llm.split(":", maxsplit=1))
 
-    def indexer_node(self, state: ConversionState) -> dict[str, Any]:
-        """
-        Creates a new Document from the successful conversion and adds it to the vector store.
-        """
-        logger.info(f"⚙️  Indexer Node")
-
-        # 1. Create the combined text for embedding
-        oracle_code = state["oracle_code"]
-        cockroach_code = state["converted_code"]
-
-        # The structure must match what the Retriever expects to find (e.g., ORACLE_CODE: ... --- COCKROACHDB_CODE: ...)
-        combined_content = (
-            f"ORACLE_CODE: {oracle_code}\n\n--- COCKROACHDB_CODE: {cockroach_code}"
-        )
-
-        logger.info(f"")
-
-        model = TextEmbedding("BAAI/bge-small-en-v1.5")
-        embeddings = list(model.embed(cockroach_code))
-
-        v = str(embeddings[0].tolist())
-
-        try:
-            with psycopg.connect(self.uri, autocommit=True) as conn:
-                register_vector(conn)  # teach psycopg how to adapt vectors
-                with conn.cursor() as cur:
-                    rs = cur.execute(
-                        "INSERT INTO queries (query_combo, crdb_query_embedding) VALUES (%s, %s::vector)",
-                        (combined_content, v),
-                    ).fetchall()
-
-                    logger.info(f"🪳 🟢 {cur.statusmessage}")
-
-            logger.info(f"SUCCESS: New translation indexed into Vector Store.")
-
-        except Exception as e:
-            logger.info(f"INDEXING FAILED: {e}")
-
-        return state
-
     def retriever_node(self, state: ConversionState) -> dict[str, any]:
         """
         Retrieves the most relevant past translations from the vector store.
@@ -197,70 +186,6 @@ class ConvertTool:
 
         # 4. Return the state update
         return {"retrieved_examples": examples_list}
-
-    def refiner_node(self, state: ConversionState) -> dict:
-
-        logger.info(f"⚙️  Refiner Node (Attempt #{state['attempts'] + 1})")
-
-        logger.info(f"📡 ➡️  Sending query to {self.refiner_llm_model}")
-
-        refiner_chain = (
-            ChatPromptTemplate.from_messages(
-                [
-                    ("system", REFINER_PROMPT),
-                    (
-                        "user",
-                        """
-                        The conversion from Oracle PL/SQL resulted in the following error:
-                        ---
-                        {validation_error}
-                        ---
-
-                        The current INCORRECT code block is:
-                        ---
-                        {converted_code}
-                        ---
-                        
-                        The original Oracle PL/SQL:
-                        ---
-                        {oracle_code}
-                        ---
-                        """,
-                    ),
-                ]
-            )
-            | self.refiner_llm
-            | StrOutputParser()
-        )
-
-        with get_usage_metadata_callback() as ctx:
-            refined_code = refiner_chain.invoke(
-                {
-                    "validation_error": state["validation_error"],
-                    "converted_code": state["converted_code"],
-                    "oracle_code": state["oracle_code"],
-                }
-            )
-
-            logger.info(
-                f"📡 ⬅️  Receiving from {self.refiner_llm_model}: {refined_code=}"
-            )
-
-            logger.info(f"💰 {self.refiner_llm_model} cost={ctx.usage_metadata}")
-
-        # 3. Update the state with the refined code for the next loop's generator
-        return {
-            "converted_code": refined_code,  # Pass the refined code back to the validator for the next pass
-            "validation_error": "",  # Clear the error for the next attempt
-            "history": state.get("history", [])
-            + [
-                {
-                    "attempt": state.get("attempts"),
-                    "status": "Refined",
-                    "refined_code": refined_code,
-                }
-            ],
-        }
 
     def generator_node(self, state: ConversionState) -> dict:
         """
@@ -342,12 +267,12 @@ class ConvertTool:
                 with conn.cursor() as cur:
                     cur.execute(converted_code)
 
-                    logger.info(f"🪳 🟢 {cur.statusmessage}")
+                    logger.info(f"🪳  🟢 {cur.statusmessage}")
 
         except Exception as e:
 
             error_message = str(e)
-            logger.error(f"🪳 🔴 {error_message}")
+            logger.error(f"🪳  🔴 {error_message}")
 
             with open(f"{self.base_dir}/out/{self.root}.out", "a") as f:
                 f.write("Error creating Stored Procedure\n")
@@ -437,6 +362,113 @@ class ConvertTool:
             ],
         }
 
+    def refiner_node(self, state: ConversionState) -> dict:
+
+        logger.info(f"⚙️  Refiner Node (Attempt #{state['attempts'] + 1})")
+
+        logger.info(f"📡 ➡️  Sending query to {self.refiner_llm_model}")
+
+        refiner_chain = (
+            ChatPromptTemplate.from_messages(
+                [
+                    ("system", REFINER_PROMPT),
+                    (
+                        "user",
+                        """
+                        The conversion from Oracle PL/SQL resulted in the following error:
+                        ---
+                        {validation_error}
+                        ---
+
+                        The current INCORRECT code block is:
+                        ---
+                        {converted_code}
+                        ---
+                        
+                        The original Oracle PL/SQL:
+                        ---
+                        {oracle_code}
+                        ---
+                        """,
+                    ),
+                ]
+            )
+            | self.refiner_llm
+            | StrOutputParser()
+        )
+
+        with get_usage_metadata_callback() as ctx:
+            refined_code = refiner_chain.invoke(
+                {
+                    "validation_error": state["validation_error"],
+                    "converted_code": state["converted_code"],
+                    "oracle_code": state["oracle_code"],
+                }
+            )
+
+            logger.info(
+                f"📡 ⬅️  Receiving from {self.refiner_llm_model}: {refined_code=}"
+            )
+
+            logger.info(f"💰 {self.refiner_llm_model} cost={ctx.usage_metadata}")
+
+        # 3. Update the state with the refined code for the next loop's generator
+        return {
+            "converted_code": refined_code,  # Pass the refined code back to the validator for the next pass
+            "validation_error": "",  # Clear the error for the next attempt
+            "history": state.get("history", [])
+            + [
+                {
+                    "attempt": state.get("attempts"),
+                    "status": "Refined",
+                    "refined_code": refined_code,
+                }
+            ],
+        }
+
+    def indexer_node(self, state: ConversionState) -> dict[str, Any]:
+        """
+        Creates a new Document from the successful conversion and adds it to the vector store.
+        """
+        logger.info(f"⚙️  Indexer Node")
+
+        # 1. Create the combined text for embedding
+        oracle_code = state["oracle_code"]
+        cockroach_code = state["converted_code"]
+
+        # The structure must match what the Retriever expects to find (e.g., ORACLE_CODE: ... --- COCKROACHDB_CODE: ...)
+        combined_content = f"ORACLE_CODE:\n\n{oracle_code}\n---\n\nCOCKROACHDB_CODE:\n\n{cockroach_code}"
+
+        logger.info(
+            f"Saving successful conversion for future RAG use by the retrieval node."
+        )
+
+        model = TextEmbedding("BAAI/bge-small-en-v1.5")
+        embeddings = list(model.embed(oracle_code))
+        src_crc32 = crc32(oracle_code.encode("utf8"))
+
+        v = Vector(embeddings[0].tolist())
+
+        try:
+            with psycopg.connect(self.uri, autocommit=True) as conn:
+                register_vector(conn)  # teach psycopg how to adapt vectors
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO defaultdb.public.queries (src_crc32, query_combo, src_query_embedding) 
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        (src_crc32, combined_content, v),
+                    )
+
+                    logger.info(f"🪳  🟢 {cur.statusmessage}")
+
+        except Exception as e:
+            logger.error(f"🪳  🔴 {str(e)}")
+
+        return state
+
     def langgraph_it(self, oracle_sp: str):
         # Conceptual Graph Structure
 
@@ -499,27 +531,10 @@ class ConvertTool:
 
                     for s in stmts:
                         cur.execute(s)
-                        logger.info(f"🪳 🟢 {cur.statusmessage}")
+                        logger.info(f"🪳  🟢 {cur.statusmessage}")
 
         except Exception as e:
-            logger.error(f"🪳 🔴 {str(e)}")
-
-    def run(self) -> list[dict]:
-
-        roots = []
-        if self.root is None:
-            # process all the files
-            roots = [
-                os.path.splitext(f)[0]
-                for f in os.listdir(os.path.join(self.base_dir, "in/"))
-                if os.path.isfile(os.path.join(self.base_dir, "in", f))
-                and f.lower().endswith(".ddl")
-            ]
-        else:
-            roots.append(self.root)
-
-        for root in roots:
-            self.convert(root)
+            logger.error(f"🪳  🔴 {str(e)}")
 
     def convert(self, root: str) -> list[dict]:
 
@@ -609,6 +624,22 @@ class ConvertTool:
             f.write(answer["converted_code"])
         logger.info(f"💾 Saved converted code to file out/{root}.ddl")
 
+    def run(self) -> list[dict]:
+
+        roots = []
+        if self.root is None:
+            # process all the files
+            roots = [
+                os.path.splitext(f)[0]
+                for f in os.listdir(os.path.join(self.base_dir, "in/"))
+                if os.path.isfile(os.path.join(self.base_dir, "in", f))
+                and f.lower().endswith(".ddl")
+            ]
+        else:
+            roots.append(self.root)
+
+        for root in roots:
+            self.convert(root)
+
 
 # TODO llmlingua the prompt to save tokens
-# TODO improve prompts syntax

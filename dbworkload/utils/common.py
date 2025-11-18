@@ -248,6 +248,21 @@ class Prom:
             self.threads.set(report[0][2])
 
 
+class CustomLogFilter(logging.Filter):
+
+    def filter(self, record):
+        # Determine the desired width for padding (e.g., 4 digits)
+        padding_width = 4
+
+        # Format the lineno integer as a zero-padded string
+        record.padded_lineno = f"{record.lineno:0{padding_width}d}"
+
+        # Extract the single-character log level
+        # The levelname is always uppercase (INFO, DEBUG, ERROR)
+        record.level_char = record.levelname[0]
+        return True
+
+
 def get_driver_from_scheme(scheme: str):
     return {
         "postgres": "postgres",
