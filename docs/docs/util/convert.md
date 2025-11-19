@@ -63,7 +63,7 @@ CREATE TABLE defaultdb.queries (
 );
 ```
 
-Converstion that are validated will be added to the database by the Indexer Node.
+Conversions that are validated will be added to the database by the Indexer Node.
 
 #### Generator Node
 
