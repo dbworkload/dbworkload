@@ -97,14 +97,14 @@ nav:
         - docs/run/max-rate.md
     - Utility Functions:
         - docs/util/index.md
-        - docs/util/yaml.md
+        - docs/util/convert.md
         - docs/util/csv.md
-        - docs/util/merge_sort.md
         - docs/util/gen_stub.md
         - docs/util/html.md
-        - docs/util/plot.md
         - docs/util/merge_csvs.md
-        - docs/util/convert.md
+        - docs/util/merge_sort.md
+        - docs/util/plot.md
+        - docs/util/yaml.md
     - docs/cli.md
   - faq.md
   - about.md
