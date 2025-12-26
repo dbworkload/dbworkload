@@ -255,7 +255,7 @@ class ConvertTool:
         logger.info(f"⚙️  Validator Node (Attempt #{state['attempts'] + 1})")
 
         # sanitize the code
-        converted_code = self.extract_sql_block(state["converted_code"])        
+        converted_code = self.extract_sql_block(state["converted_code"])
 
         if self.seed_statements:
             logger.info(f"🌱 Seeding CockroachDB prior to running tests")

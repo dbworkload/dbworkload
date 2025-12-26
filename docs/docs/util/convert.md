@@ -48,7 +48,7 @@ in/001.json  # <-- the expected output for each of the test statements
 #### Retriever Node
 
 This Node reads the source PL code in the `.ddl` file and attempts to find similar,
-previously converted Oracle-CockroachDB conversion from
+previously converted Oracle-CockroachDB conversions from
 the Vector Store with the same PL code.
 
 You need to make a CockroachDB cluster available and create, if it doesn't exist already, the following table.
@@ -78,7 +78,7 @@ You have the capability to specify a LLM for the Generate Node, and a separate L
 With the converted draft received from the LLM, the Validator will attempt the following steps:
 
 - **seed** the target CockroachDB cluster (the details are specified in the `.sql` file),
-- execute the **DDL** (the converted code) and validate the statements completes successfully,
+- execute the **DDL** (the converted code) and validate the statement completes successfully,
 - Run the **tests** and compare the actual result with the expected result in the `.json` file.
 
 If all these steps succeed, the flow of execution is routed to the Indexer Node, else to the Refiner Node.
@@ -95,7 +95,8 @@ This cycle can repeat up to 3 times, then the Agent gives up and returns the err
 
 #### Indexer Node
 
-If the conversion was successful, the source PL code and the Target CockroachDB PL/pgSQL code is saved in the Vector database for use by the Retrieve Node.
+If the conversion was successful, the source PL code and the target CockroachDB PL/pgSQL code
+are saved in the Vector database for use by the Retrieve Node.
 
 #### Final Output
 

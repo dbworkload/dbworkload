@@ -10,8 +10,10 @@ import typer
 import dbworkload.models.util
 from dbworkload.cli.dep import EPILOG, Param
 
-# import cloud_instance.cli.util
-from ..models.convert import ConvertTool
+try:
+    from ..models.convert import ConvertTool
+except:
+    pass
 
 
 class Compression(str, Enum):
