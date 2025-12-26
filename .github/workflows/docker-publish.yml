@@ -3,7 +3,7 @@ name: docker-publish
 on: 
   push:
     tags:
-      - v.**
+      - v**
     
 env:
   # Use docker.io for Docker Hub if empty
