@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 from binascii import crc32
 from typing import Any, TypedDict
@@ -227,7 +228,7 @@ class ConvertTool:
             converted_code_output = conversion_chain.invoke(state)
 
             logger.info(
-                f"📡 ⬅️  Receiving from {self.generator_llm_model}: {converted_code_output=}"
+                f"📡 ⬅️  Receiving from {self.generator_llm_model}: {converted_code_output}"
             )
 
             logger.info(
@@ -253,7 +254,8 @@ class ConvertTool:
         """
         logger.info(f"⚙️  Validator Node (Attempt #{state['attempts'] + 1})")
 
-        converted_code = state["converted_code"]
+        # sanitize the code
+        converted_code = self.extract_sql_block(state["converted_code"])        
 
         if self.seed_statements:
             logger.info(f"🌱 Seeding CockroachDB prior to running tests")
@@ -407,7 +409,7 @@ class ConvertTool:
             )
 
             logger.info(
-                f"📡 ⬅️  Receiving from {self.refiner_llm_model}: {refined_code=}"
+                f"📡 ⬅️  Receiving from {self.refiner_llm_model}: {refined_code}"
             )
 
             logger.info(f"💰 {self.refiner_llm_model} cost={ctx.usage_metadata}")
@@ -514,6 +516,14 @@ class ConvertTool:
             {"oracle_code": oracle_sp, "max_attempts": 3, "attempts": 0}
         )
         return final_state
+
+    def extract_sql_block(self, text: str) -> str | None:
+        """
+        Extracts the SQL code enclosed between ```sql and ``` markers.
+        Returns the SQL string, or None if no block is found.
+        """
+        match = re.search(r"```sql\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+        return match.group(1).strip() if match else None
 
     def to_jsonable(self, obj: Any) -> Any:
         """Best-effort conversion for non-JSON types (Decimal, UUID, datetime, etc.)."""
