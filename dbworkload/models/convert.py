@@ -254,6 +254,8 @@ class ConvertTool:
         """
         logger.info(f"⚙️  Validator Node (Attempt #{state['attempts'] + 1})")
 
+        error_messages = []
+        
         # sanitize the code
         converted_code = self.extract_sql_block(state["converted_code"])
 
@@ -273,24 +275,24 @@ class ConvertTool:
 
         except Exception as e:
 
-            error_message = str(e)
-            logger.error(f"🪳  🔴 {error_message}")
+            error_messages.append(str(e))
+            logger.error(f"🪳  🔴 {error_messages[-1]}")
 
             with open(f"{self.base_dir}/out/{self.root}.out", "a") as f:
                 f.write("Error creating Stored Procedure\n")
-                f.write(error_message)
+                f.write(error_messages[-1])
                 f.write("\n\n")
 
             new_attempts = state.get("attempts", 0) + 1
             return {
-                "validation_error": error_message,
+                "validation_error": error_messages,
                 "attempts": new_attempts,
                 "history": state.get("history", [])
                 + [
                     {
                         "attempt": state["attempts"],
                         "status": "Validated",
-                        "error": error_message,
+                        "error": error_messages,
                     }
                 ],
             }
@@ -298,7 +300,6 @@ class ConvertTool:
         logger.info("Run the SQL Test statements against the CockroachDB cluster")
 
         actual: dict = {}
-        error_message = ""
 
         for idx, s in enumerate(self.test_statements):
             try:
@@ -321,20 +322,20 @@ class ConvertTool:
                         logger.info(f"{idx=} : 🟢 OK")
                         f.write(f"{idx=} : 🟢 OK ")
                     else:
+                        error_messages.append(f"Actual: {actual[idx]} - Expected: {self.expected_output[str(idx)]}")
                         logger.info(f"{idx=} : 🔴 FAIL")
                         f.write(f"{idx=} : 🔴 FAIL")
 
                     f.write("\n")
 
             except Exception as e:
-                error_message = str(e)
+                error_messages.append(str(e))
 
                 with open(f"{self.base_dir}/out/{self.root}.out", "a") as f:
                     if "ERR" == self.expected_output[str(idx)]:
                         # The ERR in this case is expected, so it is a success
                         logger.info(f"{idx=} : 🟢 OK")
                         f.write(f"{idx=} : 🟢 OK ")
-                        error_message = ""
                     else:
                         logger.info(f"{idx=} : 🔴 FAIL")
                         f.write(f"{idx=} : 🔴 FAIL")
@@ -343,7 +344,7 @@ class ConvertTool:
                         f.write(s)
                         f.write("\n</SQL>\n")
                         f.write(f"<Error message>\n")
-                        f.write(error_message)
+                        f.write(error_messages[-1])
                         f.write("\n</Error message>\n")
                     f.write("\n")
 
@@ -352,14 +353,14 @@ class ConvertTool:
 
         new_attempts = state.get("attempts", 0) + 1
         return {
-            "validation_error": error_message,
+            "validation_error": error_messages,
             "attempts": new_attempts,
             "history": state.get("history", [])
             + [
                 {
                     "attempt": state["attempts"],
                     "status": "Validated",
-                    "error": error_message,
+                    "error": error_messages,
                 }
             ],
         }
@@ -523,7 +524,7 @@ class ConvertTool:
         Returns the SQL string, or None if no block is found.
         """
         match = re.search(r"```sql\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
-        return match.group(1).strip() if match else None
+        return match.group(1).strip() if match else text
 
     def to_jsonable(self, obj: Any) -> Any:
         """Best-effort conversion for non-JSON types (Decimal, UUID, datetime, etc.)."""
