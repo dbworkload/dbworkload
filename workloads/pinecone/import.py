@@ -1,52 +1,90 @@
+import argparse
 import pandas as pd
 from pinecone import Pinecone
 from sentence_transformers import SentenceTransformer
 
 
 # --- config ---
-CSV_PATH = "workloads/pinecone/pinecone.csv"
-INDEX_NAME = "my-index"
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2" # dim = 384
-BATCH_SIZE = 100
+EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # dim = 384
 
-# --- clients ---
-pc = Pinecone(api_key="")
-index = pc.Index(INDEX_NAME)
 
-# --- load csv ---
-df = pd.read_csv(CSV_PATH)
-
-# --- embedding helper ---
-_model = SentenceTransformer(EMBED_MODEL)
-
-def embed(texts: list[str]) -> list[list[float]]:
-    embeddings = _model.encode(texts)
+def embed(model: SentenceTransformer, texts: list[str]) -> list[list[float]]:
+    embeddings = model.encode(texts)
     return [emb.tolist() for emb in embeddings]
 
 
-# --- upsert ---
-for i in range(0, len(df), BATCH_SIZE):
-    batch = df.iloc[i:i + BATCH_SIZE]
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Import CSV passages into a Pinecone index"
+    )
 
-    texts = batch["passage"].astype(str).tolist()
-    embeddings = embed(texts)
+    parser.add_argument(
+        "-c", "--csv-path",
+        required=True,
+        help="Path to CSV file containing pid, passage columns",
+    )
 
-    vectors = [
-        (
-            str(pid),
-            emb,
-            {
-                "passage": passage
-            }
-        )
-        for pid, emb, passage in zip(
-            batch["pid"],
-            embeddings,
-            batch["passage"].astype(str).tolist()
-        )
-    ]
+    parser.add_argument(
+        "-i", "--index-name",
+        required=True,
+        help="Pinecone index name",
+    )
+
+    parser.add_argument(
+        "-k", "--api-key",
+        required=True,
+        help="Pinecone API key",
+    )
+
+    parser.add_argument(
+        "-b", "--batch-size",
+        type=int,
+        default=100,
+        help="Batch size for upserts (default: 100)",
+    )
+
+    return parser.parse_args()
 
 
-    index.upsert(vectors=vectors)
+def main():
+    args = parse_args()
 
-print("Done.")
+    # --- clients ---
+    pc = Pinecone(api_key=args.api_key)
+    index = pc.Index(args.index_name)
+
+    # --- load csv ---
+    df = pd.read_csv(args.csv_path)
+
+    # --- embedding model ---
+    model = SentenceTransformer(EMBED_MODEL)
+
+    # --- upsert ---
+    for i in range(0, len(df), args.batch_size):
+        batch = df.iloc[i:i + args.batch_size]
+
+        texts = batch["passage"].astype(str).tolist()
+        embeddings = embed(model, texts)
+
+        vectors = [
+            (
+                str(pid),
+                emb,
+                {
+                    "passage": passage
+                }
+            )
+            for pid, emb, passage in zip(
+                batch["pid"],
+                embeddings,
+                batch["passage"].astype(str).tolist()
+            )
+        ]
+
+        index.upsert(vectors=vectors)
+
+    print("Done.")
+
+
+if __name__ == "__main__":
+    main()
