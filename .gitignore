@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Build artifacts
+dist/
+site/
+
+# Virtual environments (if applicable)
+.venv/
+venv/
+
+workloads/pinecone/pinecone.csv
