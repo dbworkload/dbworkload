@@ -1,6 +1,7 @@
 import argparse
 import pandas as pd
 from pinecone import Pinecone
+from pinecone.db_data.index import Index
 from sentence_transformers import SentenceTransformer
 
 
@@ -51,7 +52,7 @@ def main():
 
     # --- clients ---
     pc = Pinecone(api_key=args.api_key)
-    index = pc.Index(args.index_name)
+    index: Index = pc.Index(args.index_name)
 
     # --- load csv ---
     df = pd.read_csv(args.csv_path)

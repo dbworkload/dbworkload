@@ -831,6 +831,21 @@ def worker(
                     return
                 log_and_sleep(e)
 
+            elif driver == "pinecone":
+                from pinecone.exceptions import PineconeException
+                
+                if isinstance(e, PineconeException):
+                    status = getattr(e, "status", None)
+
+                    if status in (400, 401, 403, 404):
+                        # fatal: bad config, bad auth, missing index
+                        to_main_q.put(e)
+                        return
+
+                    # retryable (service errors, transient failures)
+                    log_and_sleep(e)
+
+
             else:
                 # for all other Exceptions, report and return
                 logger.error(type(e), stack_info=True)
@@ -960,6 +975,12 @@ def get_connection(driver: str, conn_info: ConnInfo):
         import pymongo
 
         return pymongo.MongoClient(**conn_info)
+
+    elif driver == "pinecone":
+        from pinecone import Pinecone
+        
+        pc = Pinecone(api_key=conn_info.params["api_key"])
+        return pc.Index(conn_info.params["index_name"])
 
     else:
         return get_connection_with_context(driver, conn_info)
