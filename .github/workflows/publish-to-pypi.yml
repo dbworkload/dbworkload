@@ -11,7 +11,7 @@ name: publish-to-pypi
 on: 
   push:
     tags:
-      - v.**
+      - v**
 
 jobs:
   deploy:
