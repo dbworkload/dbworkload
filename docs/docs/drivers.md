@@ -126,7 +126,7 @@ dbworkload run -w workloads/spanner/bank.py \
   -l debug --args '{"read_pct":50}' -i 1 -c 1
 ```
 
-## Pinecone
+## pinecone
 
 Driver documentation: [Pinecone Python SDK Documentation](https://docs.pinecone.io/reference/sdks/python/overview).
 
