@@ -11,3 +11,12 @@ site/
 venv/
 
 workloads/pinecone/pinecone.csv
+
+in/
+out/
+play/
+scratch.txt
+.archive
+
+.*
+!.gitignore
