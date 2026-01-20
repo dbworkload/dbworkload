@@ -33,6 +33,7 @@ class Driver(str, Enum):
     mongo = "mongo"
     cassandra = "cassandra"
     spanner = "spanner"
+    pinecone = "pinecone"
 
 
 app = typer.Typer(
