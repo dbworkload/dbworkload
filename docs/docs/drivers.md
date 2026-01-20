@@ -139,3 +139,4 @@ dbworkload run -w workloads/pinecone/MsmarcoPassage.py \
   --driver pinecone \
   --uri 'api_key=<pinecone-api-key>,index_name=<index-name>' \
   -i 10
+```
