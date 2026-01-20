@@ -125,3 +125,17 @@ dbworkload run -w workloads/spanner/bank.py \
   --driver spanner --uri 'instance=my-spanner-1, database=bank' \
   -l debug --args '{"read_pct":50}' -i 1 -c 1
 ```
+
+## Pinecone
+
+Driver documentation: [Pinecone Python SDK Documentation](https://docs.pinecone.io/reference/sdks/python/overview).
+
+```bash
+# installation
+pip3 install dbworkload[pinecone]
+
+# sample use
+dbworkload run -w workloads/pinecone/MsmarcoPassage.py \
+  --driver pinecone \
+  --uri 'api_key=<pinecone-api-key>,index_name=<index-name>' \
+  -i 10
