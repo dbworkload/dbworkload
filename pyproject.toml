@@ -27,7 +27,7 @@ typer = {extras = ["all"], version = "*"}
 cassandra-driver = {version = "*", optional = true}
 mysql-connector-python = {version = "*", optional = true}
 oracledb = {version = "*", optional = true}
-psycopg = {extras = ["binary"], version = "^3.3.2"}
+psycopg = {version = "*", optional = true}
 psycopg-binary = {version = "*", optional = true}
 pymongo = {version = "*", optional = true}
 pyodbc = {version = "*", optional = true}
