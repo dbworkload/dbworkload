@@ -1,10 +1,5 @@
-import datetime as dt
+import numpy as np
 import random
-import time
-import uuid
-import asyncio
-
-from pinecone import Pinecone
 from pinecone.db_data.index import Index
 
 
@@ -12,7 +7,13 @@ class Msmarcopassage:
     def __init__(self, args: dict):
         # args is a dict of string passed with the --args flag
         # user passed a yaml/json, in python that's a dict object
-        return
+        self.next_input = self.__next_input()
+
+
+    def __next_input(self):
+        v = np.random.normal(size=384)
+        return (v / np.linalg.norm(v)).tolist()
+
 
     # the setup() function is executed only once
     # when a new executing thread is started.
@@ -23,7 +24,7 @@ class Msmarcopassage:
         )
         index_info = index.describe_index_stats()
         del index_info['_response_info']
-        print(f"Index info: {index_inf}")
+        print(f"Index info: {index_info}")
 
 
     # the loop() function returns a list of functions
@@ -42,11 +43,27 @@ class Msmarcopassage:
         vector = [0.0] * 384
 
         result = index.query(
-            vector=vector,
-            top_k=5,
+            vector=self.next_input,
+            top_k=100,
             include_metadata=True,
         )
 
-        print("Sync search result:")
-        print(result)
+        matches = result["matches"]
+        if len(matches) < 1:
+            self.next_input = self.__next_input()
+
+        else:
+            if random.random() < 0.5:
+                self.next_input = self.__next_input()
+
+            else:
+                farthest = matches[-1]
+                # print(farthest["id"])
+                # print(farthest["metadata"]["passage"])
+                farthest_id = farthest["id"]
+                fetched = index.fetch(ids=[farthest_id])
+                vector = fetched["vectors"][farthest_id]["values"]
+                # print(vector)
+                self.next_input = vector
+
 
