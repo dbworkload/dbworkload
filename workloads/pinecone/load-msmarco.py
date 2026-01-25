@@ -45,6 +45,13 @@ def parse_args():
         help="Batch size for upserts (default: 1000)",
     )
 
+    parser.add_argument(
+        "-s", "--skip",
+        type=int,
+        default=0,
+        help="Number of initial lines to skip (default: 0)",
+    )
+
     return parser.parse_args()
 
 
@@ -64,6 +71,8 @@ def main():
     # --- stream MS MARCO .gz ---
     with gzip.open(args.msmarco_path, "rt", encoding="utf-8") as fin:
         for line_num, line in enumerate(fin, start=1):
+            if line_num <= args.skip:
+                continue
             line = line.strip()
             if not line:
                 continue
