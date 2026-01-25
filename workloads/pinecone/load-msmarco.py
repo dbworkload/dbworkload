@@ -41,8 +41,8 @@ def parse_args():
     parser.add_argument(
         "-b", "--batch-size",
         type=int,
-        default=100,
-        help="Batch size for upserts (default: 100)",
+        default=1000,
+        help="Batch size for upserts (default: 1000)",
     )
 
     return parser.parse_args()
@@ -92,6 +92,7 @@ def main():
                 ]
 
                 index.upsert(vectors=vectors)
+                print(f"[line {line_num}]")
 
                 batch_ids.clear()
                 batch_texts.clear()
@@ -109,6 +110,8 @@ def main():
         ]
 
         index.upsert(vectors=vectors)
+        print(f"[line {line_num}]")
+
 
     print("Done.")
 
