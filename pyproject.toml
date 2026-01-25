@@ -17,7 +17,7 @@ classifiers = [
 dbworkload = 'dbworkload.cli.main:app'
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.14"
 pandas = "*"
 tabulate = "*"
 numpy = "*"
