@@ -8,7 +8,7 @@ import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import pandas as pd
 import typer
@@ -195,8 +195,22 @@ def run(
                 param_value=app_name if app_name else workload.__name__,
             )
 
-        if driver in ("postgres", "dsql"):
+        if driver == "postgres":
             conn_info.params["conninfo"] = uri
+
+        elif driver == "dsql":
+            # Parse URI into components for the aurora-dsql-python-connector
+            # which handles IAM token generation automatically
+            dsql_parsed = urlparse(uri)
+            conn_info.params["host"] = dsql_parsed.hostname
+            conn_info.params["user"] = dsql_parsed.username or "admin"
+            if dsql_parsed.port:
+                conn_info.params["port"] = dsql_parsed.port
+            if dsql_parsed.path and dsql_parsed.path != "/":
+                conn_info.params["dbname"] = dsql_parsed.path.lstrip("/")
+            # Pass through query string params (sslmode, sslrootcert, application_name, etc.)
+            for key, values in parse_qs(dsql_parsed.query).items():
+                conn_info.params[key] = values[0]
 
         elif driver == "mongo":
             conn_info.params["host"] = uri

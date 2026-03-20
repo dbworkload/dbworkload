@@ -981,9 +981,9 @@ def get_connection(driver: str, conn_info: ConnInfo):
 
         return psycopg.connect(**conn_info.params, connect_timeout=5)
     elif driver == "dsql":
-        import psycopg
+        import aurora_dsql_psycopg as dsql
 
-        return psycopg.connect(**conn_info.params, connect_timeout=5)
+        return dsql.connect(**conn_info.params, connect_timeout=5)
     elif driver == "mysql":
         import mysql.connector
 
