@@ -34,6 +34,7 @@ class Driver(str, Enum):
     cassandra = "cassandra"
     spanner = "spanner"
     pinecone = "pinecone"
+    dsql = "dsql"
 
 
 app = typer.Typer(
@@ -174,12 +175,18 @@ def run(
     parse_result = urlparse(uri)
 
     if parse_result.scheme:
-        driver = dbworkload.utils.common.get_driver_from_scheme(parse_result.scheme)
-        if driver is None:
+        detected_driver = dbworkload.utils.common.get_driver_from_scheme(parse_result.scheme)
+        if detected_driver is None:
             logger.error(
                 f"Could not find a driver for URI scheme '{parse_result.scheme}'."
             )
             sys.exit(1)
+
+        # Use explicitly provided --driver if set, otherwise use detected driver
+        if driver is not None:
+            driver = driver.value if isinstance(driver, Driver) else driver
+        else:
+            driver = detected_driver
 
         if get_app_name(driver):
             uri = dbworkload.utils.common.set_query_parameter(
@@ -188,7 +195,7 @@ def run(
                 param_value=app_name if app_name else workload.__name__,
             )
 
-        if driver == "postgres":
+        if driver in ("postgres", "dsql"):
             conn_info.params["conninfo"] = uri
 
         elif driver == "mongo":
@@ -206,7 +213,7 @@ def run(
 
         driver = driver.value
 
-    if driver == "postgres":
+    if driver in ("postgres", "dsql"):
         conn_info.params["autocommit"] = autocommit
 
     if driver in ["mysql", "maria"]:
@@ -269,6 +276,8 @@ def run(
 
 def get_app_name(driver: str):
     if driver == "postgres":
+        return "application_name"
+    elif driver == "dsql":
         return "application_name"
     elif driver == "mysql":
         return

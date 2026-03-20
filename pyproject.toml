@@ -59,6 +59,7 @@ odbc = ["pyodbc"]
 mongo = ["pymongo"]
 cassandra = ["cassandra-driver"]
 spanner = ["google-cloud-spanner"]
+dsql = ["psycopg", "psycopg-binary"]
 pinecone = ["pinecone", "sentence-transformers"]
 convert = [
   "langchain-core",
