@@ -33,6 +33,7 @@ pymongo = {version = "*", optional = true}
 pyodbc = {version = "*", optional = true}
 mariadb = {version = "*", optional = true}
 google-cloud-spanner = {version = "*", optional = true}
+aurora-dsql-python-connector = {version = "*", optional = true}
 pinecone = {version = "^8.0.0", optional = true, extras = ["asyncio", "grpc"]}
 sentence-transformers = { version = "*", optional = true }
 langchain-core = { version = "^1.0.5", optional = true }
@@ -59,6 +60,7 @@ odbc = ["pyodbc"]
 mongo = ["pymongo"]
 cassandra = ["cassandra-driver"]
 spanner = ["google-cloud-spanner"]
+dsql = ["aurora-dsql-python-connector", "psycopg", "psycopg-binary"]
 pinecone = ["pinecone", "sentence-transformers"]
 convert = [
   "langchain-core",

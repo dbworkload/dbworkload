@@ -277,6 +277,7 @@ def get_driver_from_scheme(scheme: str):
         "cassandra": "cassandra",
         "sqlserver": "sqlserver",
         "spanner": "spanner",
+        "dsql": "dsql",
     }.get(scheme, None)
 
 
