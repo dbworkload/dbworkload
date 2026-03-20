@@ -677,7 +677,10 @@ def worker(
 ):
     def gracefully_return(msg):
         # send final stats
-        to_main_q.put(ws.get_tdigest_ndarray(), block=False)
+        try:
+            to_main_q.put(ws.get_tdigest_ndarray(), block=False)
+        except (TypeError, ValueError):
+            pass
 
         # send notification to MainThread
         to_main_q.put(msg)
