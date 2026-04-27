@@ -19,11 +19,11 @@ import sqlparse
 import yaml
 from jinja2 import Environment, PackageLoader
 from plotly.subplots import make_subplots
-from pytdigest import TDigest
 
 import dbworkload
 import dbworkload.utils.common
 import dbworkload.utils.simplefaker
+import dbworkload.utils.tdigest as tdigest
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)
@@ -506,12 +506,10 @@ def util_merge_csvs(input_dir: str):
         """
         combine centroids of multiple TDigests together,
         and return the new aggregated centroids.
-        Note: compression=1000
+        Note: max_centroids=1000
         """
-        return (
-            TDigest(compression=1000)
-            .combine([TDigest.of_centroids(y, compression=1000) for y in x])
-            .get_centroids()
+        return tdigest.centroids(
+            tdigest.combine(tdigest.from_centroids(y) for y in x)
         )
 
     # for each elapsed range bucket, merge the data for all `id` together
@@ -520,9 +518,9 @@ def util_merge_csvs(input_dir: str):
         {"ts": min, "threads": sum, "centroids": combine_centroids}
     )
 
-    # the weight of the TDigest represents the count of ops
+    # the mass of the TDigest represents the count of ops
     df["period_ops"] = df["centroids"].map(
-        lambda x: TDigest(compression=1000).of_centroids(x, compression=1000).weight
+        lambda x: tdigest.count(tdigest.from_centroids(x))
     )
 
     df["period_ops_s"] = df["period_ops"].apply(lambda x: x // 10)
@@ -536,17 +534,21 @@ def util_merge_csvs(input_dir: str):
 
     # calculate mean and quantiles and convert from seconds to millis
     df["mean_ms"] = df["centroids"].map(
-        lambda x: TDigest(compression=1000).of_centroids(x, compression=1000).mean
+        lambda x: tdigest.from_centroids(x).mean() * 1000
+    )
+    df[["p50_ms", "p90_ms", "p95_ms", "p99_ms", "max_ms"]] = (
+        pd.DataFrame(
+            df["centroids"]
+            .map(
+                lambda x: tdigest.from_centroids(x).quantile_vec(
+                    [0.50, 0.90, 0.95, 0.99, 1.00]
+                )
+            )
+            .tolist(),
+            index=df.index,
+        )
         * 1000
     )
-    df[["p50_ms", "p90_ms", "p95_ms", "p99_ms", "max_ms"]] = [
-        x * 1000
-        for x in df["centroids"].map(
-            lambda x: TDigest(compression=1000)
-            .of_centroids(x, compression=1000)
-            .inverse_cdf([0.50, 0.90, 0.95, 0.99, 1.00])
-        )
-    ]
 
     # round all values to 2 decimals
     df[["mean_ms", "p50_ms", "p90_ms", "p95_ms", "p99_ms", "max_ms"]] = df[

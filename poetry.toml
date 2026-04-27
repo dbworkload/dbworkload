@@ -1,3 +1,4 @@
+
 [virtualenvs]
-create = false
 use-poetry-python = false
+in-project = true

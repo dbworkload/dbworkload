@@ -13,7 +13,9 @@ import prometheus_client as prom
 import yaml
 from prometheus_client.core import REGISTRY, HistogramMetricFamily
 from prometheus_client.registry import Collector
-from pytdigest import TDigest
+
+import dbworkload.utils.tdigest as tdigest
+from fastdigest import TDigest
 
 RESERVED_WORDS = [
     "unique",
@@ -77,9 +79,7 @@ class Stats:
         for x in l:
             self.cumulative_counts.setdefault(x[0], TDigest())
             self.window_stats.setdefault(x[0], [])
-            self.window_stats[x[0]].append(
-                TDigest(compression=1000).of_centroids(x[1], compression=1000)
-            )
+            self.window_stats[x[0]].append(tdigest.from_centroids(x[1]))
 
     # calculate the current stats this instance has collected.
     def calculate_stats(self, active_connections: int, endtime: int) -> list:
@@ -97,23 +97,21 @@ class Stats:
         )
 
         def get_stats_row(id: str):
-            td = TDigest(compression=1000).combine(self.window_stats[id])
+            td = tdigest.combine(self.window_stats[id])
 
-            self.window_stats_centroids[id] = td.get_centroids()
+            self.window_stats_centroids[id] = tdigest.centroids(td)
 
-            self.cumulative_counts[id] = TDigest(compression=1000).combine(
-                self.cumulative_counts[id], td
-            )
+            self.cumulative_counts[id] = self.cumulative_counts[id].merge(td)
             return [
                 elapsed,
                 id,
                 active_connections,
-                int(self.cumulative_counts[id].weight),
-                int(self.cumulative_counts[id].weight // elapsed),
-                int(td.weight),
-                int(td.weight // window_elapsed),
-                round(td.mean * 1000, 2),
-            ] + [round(x * 1000, 2) for x in td.inverse_cdf(self.quantiles)]
+                tdigest.count(self.cumulative_counts[id]),
+                tdigest.count(self.cumulative_counts[id]) // elapsed,
+                tdigest.count(td),
+                tdigest.count(td) // window_elapsed,
+                round(td.mean() * 1000, 2),
+            ] + [round(x * 1000, 2) for x in td.quantile_vec(self.quantiles)]
 
         return [get_stats_row(id) for id in sorted(list(self.window_stats.keys()))]
 
@@ -129,12 +127,12 @@ class Stats:
                 elapsed,
                 id,
                 active_connections,
-                int(self.cumulative_counts[id].weight),
-                int(self.cumulative_counts[id].weight // elapsed),
-                round(self.cumulative_counts[id].mean * 1000, 2),
+                tdigest.count(self.cumulative_counts[id]),
+                tdigest.count(self.cumulative_counts[id]) // elapsed,
+                round(self.cumulative_counts[id].mean() * 1000, 2),
             ] + [
                 round(x * 1000, 2)
-                for x in self.cumulative_counts[id].inverse_cdf(self.quantiles)
+                for x in self.cumulative_counts[id].quantile_vec(self.quantiles)
             ]
 
         return [get_stats_row(id) for id in sorted(list(self.window_stats.keys()))]
@@ -165,7 +163,7 @@ class WorkerStats:
 
     def get_tdigest_ndarray(self):
         return [
-            (id, TDigest.compute(np.array(l), compression=1000).get_centroids())
+            (id, tdigest.centroids(tdigest.from_values(l)))
             for id, l in self.window_stats.items()
         ]
 
@@ -182,10 +180,13 @@ class CustomHistogram(Collector):
             return [["+Inf", 0]]
 
         # create buckets from 10 ... 180
-        td_hist = [[x, int(td.cdf((int(x) + 1) / 1000) * td.weight)] for x in self.bins]
-        td_hist.append(["+Inf", td.weight])
+        td_count = tdigest.count(td)
+        td_hist = [
+            [x, int(td.cdf((int(x) + 1) / 1000) * td_count)] for x in self.bins
+        ]
+        td_hist.append(["+Inf", td_count])
 
-        return td.mean * 1000 * td.weight, td_hist
+        return td.mean() * 1000 * td_count, td_hist
 
     def collect(self):
         sum_value, buckets = self.get_buckets(self.name)
