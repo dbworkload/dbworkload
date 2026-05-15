@@ -3,13 +3,13 @@ name = "dbworkload"
 version = "0.12.0"
 description = "Workload framework"
 authors = ["Fabio Ghirardello"]
-license = "GPLv3+"
+license = "Apache-2.0"
 readme = "README.md"
 homepage = "https://dbworkload.github.io/dbworkload/"
 repository = "https://github.com/dbworkload/dbworkload"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent"
 ]
 
