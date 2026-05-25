@@ -7,6 +7,10 @@ license = "Apache-2.0"
 readme = "README.md"
 homepage = "https://dbworkload.github.io/dbworkload/"
 repository = "https://github.com/dbworkload/dbworkload"
+include = [
+    { path = "dbworkload/mcp/README.md", format = ["sdist", "wheel"] },
+    { path = "dbworkload/mcp/skills.md", format = ["sdist", "wheel"] }
+]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",
@@ -15,6 +19,7 @@ classifiers = [
 
 [tool.poetry.scripts]
 dbworkload = 'dbworkload.cli.main:app'
+dbworkload-mcp-server = 'dbworkload.mcp.server:main'
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4"
@@ -48,9 +53,29 @@ jinja2 = "*"
 sqlparse = "*"
 psutil = "^7.0.0"
 fastdigest = "^0.12.0"
+mcp = {version = "*", optional = true}
 
 [tool.poetry.extras]
-all =  ["psycopg", "psycopg-binary", "mysql-connector-python", "mariadb", "oracledb", "pyodbc", "pymongo", "cassandra-driver", "google-cloud-spanner", "pinecone", "convert"]
+all =  [
+  "psycopg",
+  "psycopg-binary",
+  "mysql-connector-python",
+  "mariadb",
+  "oracledb",
+  "pyodbc",
+  "pymongo",
+  "cassandra-driver",
+  "google-cloud-spanner",
+  "pinecone",
+  "sentence-transformers",
+  "langchain-core",
+  "langchain-openai",
+  "langchain-ollama",
+  "langgraph",
+  "openai",
+  "fastembed",
+  "pgvector"
+]
 postgres = ["psycopg", "psycopg-binary"]
 mysql = ["mysql-connector-python"]
 mariadb = ["mariadb"]
@@ -69,6 +94,7 @@ convert = [
   "fastembed",
   "pgvector"
 ]
+mcp = ["mcp"]
 
 [tool.poetry.group.dev.dependencies]
 mkdocs = "^1.6.1"

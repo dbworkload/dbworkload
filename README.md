@@ -44,6 +44,15 @@ official documentation:
 
 <https://dbworkload.github.io/dbworkload/>
 
+## MCP Server
+
+`dbworkload` also ships an optional MCP server for AI coding agents. It exposes
+workload authoring guidance and a one-iteration dry-run tool so agents can
+generate, validate, and repair workload files locally.
+
+See [dbworkload/mcp/README.md](dbworkload/mcp/README.md) for installation and
+client configuration examples.
+
 ## License
 
 `dbworkload` is released under the Apache License Version 2.0 license.

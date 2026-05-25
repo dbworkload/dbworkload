@@ -88,6 +88,7 @@ nav:
     - getting_started/8.md
   - Docs:
     - docs/installation.md
+    - docs/mcp.md
     - docs/drivers.md
     - docs/how_it_works.md
     - Run Options:
