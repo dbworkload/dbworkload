@@ -83,7 +83,7 @@ When using the CLI directly, run options are passed as flags:
 
 ```bash
 dbworkload run \
-  --workload workloads/postgres/bimbo.py \
+  --workload workloads/postgres/hello.py \
   --uri "postgresql://user:password@localhost:5432/postgres" \
   --concurrency 4 \
   --iterations 1000 \
@@ -95,7 +95,7 @@ Through MCP, an agent sends the same values as named tool arguments:
 
 ```json
 {
-  "workload_path": "workloads/postgres/bimbo.py",
+  "workload_path": "workloads/postgres/hello.py",
   "db_uri": "postgresql://user:password@localhost:5432/postgres",
   "concurrency": 4,
   "iterations": 1000,
@@ -107,7 +107,7 @@ Through MCP, an agent sends the same values as named tool arguments:
 In chat, you can ask for the same thing in plain language:
 
 ```text
-Use the dbworkload MCP server to run workloads/postgres/bimbo.py against
+Use the dbworkload MCP server to run workloads/postgres/hello.py against
 postgresql://user:password@localhost:5432/postgres with concurrency 4,
 1000 iterations, 10 seconds ramp, and quiet output.
 ```
