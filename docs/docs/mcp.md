@@ -11,6 +11,8 @@ The server runs over `stdio` and exposes:
 - `get_authoring_rules`: a tool that returns the same authoring guidance.
 - `dry_run_workload`: a tool that runs one `dbworkload` iteration against a
   target database URI.
+- `run_workload`: a tool that runs `dbworkload run` with the full set of CLI
+  options.
 
 ## Install
 
@@ -73,6 +75,42 @@ Once registered, an AI agent can:
 3. Generate or edit a workload Python file in the user's workspace.
 4. Call `dry_run_workload` with the workload path and database URI.
 5. Use the returned stdout, stderr, and exit code to fix the workload and retry.
+6. Call `run_workload` with the desired run options.
+
+## Using `run_workload`
+
+When using the CLI directly, run options are passed as flags:
+
+```bash
+dbworkload run \
+  --workload workloads/postgres/bimbo.py \
+  --uri "postgresql://user:password@localhost:5432/postgres" \
+  --concurrency 4 \
+  --iterations 1000 \
+  --ramp 10 \
+  --quiet
+```
+
+Through MCP, an agent sends the same values as named tool arguments:
+
+```json
+{
+  "workload_path": "workloads/postgres/bimbo.py",
+  "db_uri": "postgresql://user:password@localhost:5432/postgres",
+  "concurrency": 4,
+  "iterations": 1000,
+  "ramp": 10,
+  "quiet": true
+}
+```
+
+In chat, you can ask for the same thing in plain language:
+
+```text
+Use the dbworkload MCP server to run workloads/postgres/bimbo.py against
+postgresql://user:password@localhost:5432/postgres with concurrency 4,
+1000 iterations, 10 seconds ramp, and quiet output.
+```
 
 ## Notes
 
@@ -82,6 +120,10 @@ Once registered, an AI agent can:
 dbworkload run --workload <file> --uri <uri> --iterations 1 --quiet
 ```
 
+`run_workload` wraps `dbworkload run` and accepts the same options as the CLI,
+plus `timeout_seconds` to bound the MCP tool call. To avoid accidental
+never-ending tool calls, `run_workload` requires `iterations`, `duration`, or
+`schedule`.
+
 A database smoke-test tool can be added later if `dbworkload` grows a dedicated
 connection-check command.
-

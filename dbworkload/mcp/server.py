@@ -44,8 +44,80 @@ def server_info_text() -> str:
             "- get_server_info",
             "- get_authoring_rules",
             "- dry_run_workload",
+            "- run_workload",
         ]
     )
+
+
+def _validate_workload_path(workload_path: str) -> str | None:
+    path = Path(workload_path).expanduser()
+    if not path.exists():
+        return f"Workload file not found: {workload_path}"
+    if not path.is_file():
+        return f"Workload path is not a file: {workload_path}"
+    return None
+
+
+def _append_optional(cmd: list[str], flag: str, value: object | None) -> None:
+    if value is not None:
+        cmd.extend([flag, str(value)])
+
+
+def _build_run_command(
+    workload_path: str,
+    db_uri: str,
+    driver: str | None = None,
+    procs: int | None = None,
+    args: str | None = None,
+    concurrency: int | None = None,
+    ramp: int | None = None,
+    iterations: int | None = None,
+    duration: int | None = None,
+    max_rate: int | None = None,
+    conn_duration: int | None = None,
+    app_name: str | None = None,
+    autocommit: bool = True,
+    prom_port: int | None = None,
+    quiet: bool = False,
+    save: bool = False,
+    schedule: str | None = None,
+    histogram_bins: str | None = None,
+    delay_stats: int | None = None,
+    log_level: str | None = None,
+) -> list[str]:
+    cmd = [
+        "dbworkload",
+        "run",
+        "--workload",
+        str(Path(workload_path).expanduser()),
+        "--uri",
+        db_uri,
+    ]
+
+    _append_optional(cmd, "--driver", driver)
+    _append_optional(cmd, "--procs", procs)
+    _append_optional(cmd, "--args", args)
+    _append_optional(cmd, "--concurrency", concurrency)
+    _append_optional(cmd, "--ramp", ramp)
+    _append_optional(cmd, "--iterations", iterations)
+    _append_optional(cmd, "--duration", duration)
+    _append_optional(cmd, "--max-rate", max_rate)
+    _append_optional(cmd, "--conn-duration", conn_duration)
+    _append_optional(cmd, "--app-name", app_name)
+    _append_optional(cmd, "--port", prom_port)
+    _append_optional(cmd, "--schedule", schedule)
+    _append_optional(cmd, "--bins", histogram_bins)
+    _append_optional(cmd, "--delay-stats", delay_stats)
+    _append_optional(cmd, "--log-level", log_level)
+
+    if not autocommit:
+        cmd.append("--no-autocommit")
+    if quiet:
+        cmd.append("--quiet")
+    if save:
+        cmd.append("--save")
+
+    return cmd
 
 
 def _format_completed_process(result: subprocess.CompletedProcess[str]) -> str:
@@ -113,28 +185,76 @@ def create_app():
         timeout_seconds: int = 60,
     ) -> str:
         """Run a single dbworkload iteration against a target database URI."""
-        path = Path(workload_path).expanduser()
-        if not path.exists():
-            return f"Workload file not found: {workload_path}"
-        if not path.is_file():
-            return f"Workload path is not a file: {workload_path}"
+        error = _validate_workload_path(workload_path)
+        if error:
+            return error
 
-        cmd = [
-            "dbworkload",
-            "run",
-            "--workload",
-            str(path),
-            "--uri",
-            db_uri,
-            "--iterations",
-            "1",
-            "--quiet",
-        ]
-        if driver:
-            cmd.extend(["--driver", driver])
-        if args:
-            cmd.extend(["--args", args])
+        cmd = _build_run_command(
+            workload_path=workload_path,
+            db_uri=db_uri,
+            driver=driver,
+            args=args,
+            iterations=1,
+            quiet=True,
+        )
+        return _run_command(cmd, timeout_seconds)
 
+    @app.tool()
+    def run_workload(
+        workload_path: str,
+        db_uri: str,
+        driver: str | None = None,
+        procs: int | None = None,
+        args: str | None = None,
+        concurrency: int = 1,
+        ramp: int = 0,
+        iterations: int | None = None,
+        duration: int | None = None,
+        max_rate: int | None = None,
+        conn_duration: int | None = None,
+        app_name: str | None = None,
+        autocommit: bool = True,
+        prom_port: int = 26260,
+        quiet: bool = False,
+        save: bool = False,
+        schedule: str | None = None,
+        histogram_bins: str = "5,10,25,50,75,100,125,250,500,750,1000",
+        delay_stats: int = 0,
+        log_level: str = "info",
+        timeout_seconds: int = 3600,
+    ) -> str:
+        """Run dbworkload with the same options as the dbworkload run CLI."""
+        error = _validate_workload_path(workload_path)
+        if error:
+            return error
+        if iterations is None and duration is None and schedule is None:
+            return (
+                "Refusing to start an unbounded MCP run. Provide iterations, "
+                "duration, or schedule."
+            )
+
+        cmd = _build_run_command(
+            workload_path=workload_path,
+            db_uri=db_uri,
+            driver=driver,
+            procs=procs,
+            args=args,
+            concurrency=concurrency,
+            ramp=ramp,
+            iterations=iterations,
+            duration=duration,
+            max_rate=max_rate,
+            conn_duration=conn_duration,
+            app_name=app_name,
+            autocommit=autocommit,
+            prom_port=prom_port,
+            quiet=quiet,
+            save=save,
+            schedule=schedule,
+            histogram_bins=histogram_bins,
+            delay_stats=delay_stats,
+            log_level=log_level,
+        )
         return _run_command(cmd, timeout_seconds)
 
     return app
