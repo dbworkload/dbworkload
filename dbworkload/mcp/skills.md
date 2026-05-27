@@ -1,154 +1,279 @@
 # AI Rules for Generating `dbworkload` Python Classes
 
-You are an expert developer specialized in generating custom workload simulation scripts for the `dbworkload` framework. Follow these rules strictly.
+You are an expert developer specialized in generating custom workload
+simulation scripts for the `dbworkload` framework. Generate simple, direct,
+readable workload classes that look like code a human benchmark author would
+maintain.
 
 ## Core Rules
 
-1. Every simulation must be a standalone Python class. Avoid global state to prevent race conditions during multi-threaded runs.
-2. The class initializer must accept a database client/connection pool instance and a configuration dictionary.
-3. The hot path should be one execution step that performs exactly one transactional unit of work.
-4. The execution step should return `True` when the transaction succeeds, or `False` for a handled failure that should be counted in metrics.
-5. Catch engine-specific exceptions where practical, especially transient concurrency failures such as serialization retries.
-6. Generate per-step data locally inside the worker to avoid shared mutable state and lock contention.
+1. Every simulation should be a standalone Python class with no shared global
+   mutable state.
+2. The class initializer should accept an `args: dict` configuration object.
+3. Use `setup(conn, id, total_thread_count)` only for per-worker initialization,
+   connection checks, optional data seeding, or worker-local caches.
+4. `loop()` should usually return a list of transaction methods. For weighted
+   mixes, prebuild and shuffle a schedule in `__init__`, then return that
+   schedule from `loop()`.
+5. Transaction methods should be named `txn_*`, include a short docstring, and
+   execute their SQL directly.
+6. Avoid nested `work()` closures and generic `_run()` wrappers unless custom
+   error behavior is explicitly required.
+7. Do not return `True` or `False` from transaction methods unless the framework
+   or scenario specifically requires it.
+8. Let `dbworkload` handle standard retry behavior. Catch database exceptions
+   only for intentional workload semantics, custom metrics, or expected
+   non-retryable business outcomes.
+9. Generate per-step random data inside the worker instance to avoid shared
+   mutable state and lock contention.
+10. Keep the workload readable: prefer business-shaped transaction methods over
+    over-abstracted helper layers.
 
-## Reference Workload Implementation
+## Preferred Class Shape
+
+Use `__init__(args)` for configuration, optional `setup()` for per-worker
+initialization, `loop()` for the execution schedule, and direct `txn_*` methods
+for simulated business transactions.
 
 ```python
 import random
-import time
-from collections import deque
-from uuid import uuid4
 
 import psycopg
 
 
-class Bank:
+class WalletWorkload:
     def __init__(self, args: dict):
-        # args is a dict of string passed with the --args flag
+        self.account_count = int(args.get("account_count", 100000))
+        self.hot_accounts = int(args.get("hot_accounts", 2000))
+        self.hot_pct = float(args.get("hot_pct", 80)) / 100
+        self.schedule_size = int(args.get("schedule_size", 100))
+        self.loop_schedule = self.build_schedule()
 
-        self.think_time: float = float(args.get("think_time", 5) / 1000)
-
-        # Percentage of read operations compared to order operations
-        self.read_pct: float = float(args.get("read_pct", 0) / 100)
-
-        # initiate deque with 1 random UUID so a read won't fail
-        self.order_tuples = deque([(0, uuid4())], maxlen=10000)
-
-        # keep track of the current account number and id
-        self.account_number = 0
-        self.id = uuid4()
-
-        # translation table for efficiently generating a string
-        # -------------------------------------------------------
-        # make translation table from 0..255 to A..Z, 0..9, a..z
-        # the length must be 256
-        self.tbl = bytes.maketrans(
-            bytearray(range(256)),
-            bytearray(
-                [ord(b"a") + b % 26 for b in range(113)]
-                + [ord(b"0") + b % 10 for b in range(30)]
-                + [ord(b"A") + b % 26 for b in range(113)]
-            ),
-        )
-
-    # the setup() function is executed only once
-    # when a new executing thread is started.
-    # Also, the function is a vector to receive the excuting threads's unique id and the total thread count
     def setup(self, conn: psycopg.Connection, id: int, total_thread_count: int):
+        """Load worker-local state and verify the connection."""
         with conn.cursor() as cur:
-            print(
-                f"My thread ID is {id}. The total count of threads is {total_thread_count}"
-            )
-            print(cur.execute(f"select version()").fetchone()[0])
+            cur.execute("SELECT 1").fetchone()
 
-    # the loop() function returns a list of functions
-    # that dbworkload will execute, sequentially.
-    # Once every func has been executed, loop() is re-evaluated.
-    # This process continues until dbworkload exits.
     def loop(self):
-        if random.random() < self.read_pct:
-            return [self.txn_read]
-        return [self.txn_new_order, self.txn_order_exec]
+        return self.loop_schedule
 
-    #####################
-    # Utility Functions #
-    #####################
-    def __think__(self, conn: psycopg.Connection):
-        time.sleep(self.think_time)
+    def build_schedule(self):
+        weighted_funcs = [
+            (70, self.txn_wallet_read),
+            (20, self.txn_wallet_debit),
+            (10, self.txn_wallet_credit),
+        ]
 
-    def random_str(self, size: int = 12):
-        return (
-            random.getrandbits(8 * size)
-            .to_bytes(size, "big")
-            .translate(self.tbl)
-            .decode()
-        )
+        total = sum(weight for weight, _ in weighted_funcs)
+        schedule = []
+        for weight, func in weighted_funcs:
+            count = round((weight / total) * self.schedule_size)
+            schedule.extend([func] * max(1, count))
 
-    # Workload function stubs
+        random.shuffle(schedule)
+        return schedule[: self.schedule_size]
 
-    def txn_read(self, conn: psycopg.Connection):
+    def account_id(self):
+        if random.random() < self.hot_pct:
+            return random.randint(1, self.hot_accounts)
+        return random.randint(1, self.account_count)
+
+    def amount(self):
+        return random.randint(1, 100)
+
+    def txn_wallet_read(self, conn: psycopg.Connection):
+        """Read the current wallet balance for an account."""
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT *
-                FROM orders
-                WHERE acc_no = %s
-                  AND id = %s
+                SELECT balance
+                FROM account_balances
+                WHERE account_id = %s
                 """,
-                random.choice(self.order_tuples),
-            ).fetchall()
+                (self.account_id(),),
+            ).fetchone()
 
-    def txn_new_order(self, conn: psycopg.Connection):
-        # generate a random account number to be used for
-        # for the order transaction
-        self.account_number = random.randint(0, 999)
+    def txn_wallet_debit(self, conn: psycopg.Connection):
+        """Lock a wallet row, debit balance, and write a ledger row."""
+        account_id = self.account_id()
+        amount = self.amount()
 
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO orders (acc_no, status, amount)
-                VALUES (%s, 'Pending', %s) RETURNING id
-                """,
-                (
-                    self.account_number,
-                    round(random.random() * 1000000, 2),
-                ),
-            )
-
-            # save the id that the server generated
-            self.id = cur.fetchone()[0]
-
-            # save the (acc_no, id) tuple to our deque list
-            # for future read transactions
-            self.order_tuples.append((self.account_number, self.id))
-
-    def txn_order_exec(self, conn: psycopg.Connection):
-        # with Psycopg, this is how you start an explicit transaction
-        with conn.transaction() as tx:
+        with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT *
-                    FROM ref_data
-                    WHERE acc_no = %s
+                    SELECT balance
+                    FROM account_balances
+                    WHERE account_id = %s
+                    FOR UPDATE
                     """,
-                    (self.account_number,),
-                ).fetchall()
-
-                # simulate microservice doing something...
-                time.sleep(0.02)
+                    (account_id,),
+                )
+                balance = cur.fetchone()[0]
 
                 cur.execute(
                     """
-                    UPDATE orders
-                    SET status = 'Complete'
-                    WHERE 
-                        (acc_no, id) = (%s, %s)
+                    UPDATE account_balances
+                    SET balance = balance - %s
+                    WHERE account_id = %s
                     """,
-                    (
-                        self.account_number,
-                        self.id,
-                    ),
+                    (amount, account_id),
                 )
 
+                cur.execute(
+                    """
+                    INSERT INTO account_statements(account_id, amount, balance)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (account_id, -amount, balance - amount),
+                )
+
+    def txn_wallet_credit(self, conn: psycopg.Connection):
+        """Credit a wallet balance and write a ledger row."""
+        account_id = self.account_id()
+        amount = self.amount()
+
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE account_balances
+                    SET balance = balance + %s
+                    WHERE account_id = %s
+                    RETURNING balance
+                    """,
+                    (amount, account_id),
+                )
+                balance = cur.fetchone()[0]
+
+                cur.execute(
+                    """
+                    INSERT INTO account_statements(account_id, amount, balance)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (account_id, amount, balance),
+                )
 ```
+
+## Transaction Method Guidance
+
+- Keep each `txn_*` method focused on one simulated business workflow.
+- Put the transaction body directly in the method.
+- Add a one-line docstring that names the workflow being modeled.
+- Use helper methods for data generation when they improve readability.
+- Avoid broad `except Exception` wrappers around normal transaction code.
+- Avoid wrapping every transaction in a generic `_run()` helper.
+- Avoid nested `work()` functions inside transaction methods.
+
+Preferred:
+
+```python
+def txn_bonus_entitlement(self, conn):
+    """Read active bonus and lossback state for a ledger event."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT bonus_id, lossback_pct
+            FROM bonus_entitlements
+            WHERE account_id = %s
+              AND active
+            """,
+            (self.account_id(),),
+        ).fetchall()
+```
+
+Avoid:
+
+```python
+def txn_bonus_entitlement(self, conn):
+    def work():
+        with conn.cursor() as cur:
+            cur.execute("SELECT ...")
+
+    return self._run(work)
+```
+
+## Weighted Loop Schedules
+
+For weighted random workloads, prefer building a schedule once per worker
+instance. This avoids unnecessary per-loop decision overhead and makes the
+mix transparent.
+
+```python
+def __init__(self, args: dict):
+    self.schedule_size = int(args.get("schedule_size", 100))
+    self.loop_schedule = self.build_schedule()
+
+def loop(self):
+    return self.loop_schedule
+
+def build_schedule(self):
+    weighted_funcs = [
+        (70, self.txn_read),
+        (20, self.txn_write),
+        (10, self.txn_batch),
+    ]
+
+    total = sum(weight for weight, _ in weighted_funcs)
+    schedule = []
+    for weight, func in weighted_funcs:
+        count = round((weight / total) * self.schedule_size)
+        schedule.extend([func] * max(1, count))
+
+    random.shuffle(schedule)
+    return schedule[: self.schedule_size]
+```
+
+Dynamic choices inside `loop()` are still acceptable when the workload truly
+needs to choose a different transaction sequence based on worker-local state,
+previous transaction results, or multi-step flows.
+
+## `--args` Format
+
+`--args` receives a JSON or YAML-style dictionary, or a path to a JSON/YAML
+file. Do not use shell-style `key=value key=value` strings.
+
+Preferred:
+
+```bash
+dbworkload run \
+  --driver postgres \
+  --workload wallet.py \
+  --concurrency 128 \
+  --duration 1200 \
+  --args '{"account_count": 100000, "hot_accounts": 2000, "hot_pct": 80}'
+```
+
+Also valid:
+
+```bash
+dbworkload run \
+  --workload wallet.py \
+  --uri "postgresql://user:password@localhost:5432/app" \
+  --args ./wallet-args.yaml
+```
+
+Avoid:
+
+```bash
+--args "account_count=100000 hot_accounts=2000 hot_pct=80"
+```
+
+Use `dbworkload` driver names such as `postgres`, `mysql`, `maria`, `oracle`,
+`mongo`, `cassandra`, `spanner`, and `pinecone`. Do not use Python package names
+such as `psycopg` as driver values.
+
+## Retry and Error Guidance
+
+`dbworkload` should own normal statement and transaction retry behavior. Generated
+workloads should not add broad error wrappers by default.
+
+Catch exceptions only when:
+
+- the workload intentionally models a business-level failure,
+- the exception is an expected non-retryable outcome,
+- custom metrics or compensating logic are explicitly required,
+- a driver-specific API requires a narrow exception handler.
+
+When catching exceptions, catch the narrowest useful exception type and keep the
+transaction method readable.
