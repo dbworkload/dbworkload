@@ -29,6 +29,114 @@ maintain.
 10. Keep the workload readable: prefer business-shaped transaction methods over
     over-abstracted helper layers.
 
+## Generated Workload Bundle
+
+Unless the user explicitly asks for only one file, generate a small runnable
+workload bundle, not just a Python class:
+
+- `<basename>.py`: the `dbworkload` class.
+- `<basename>.sql`: minimal DDL needed to run the workload on a fresh test
+  database.
+- `<basename>.md`: concise explanation of the workload model and run
+  instructions.
+
+The workload basename, generated files, and Python class must correspond.
+
+| Workload name | Python class | Python file | SQL file | Markdown file |
+| --- | --- | --- | --- | --- |
+| ABC | `ABC` | `abc.py` | `abc.sql` | `abc.md` |
+| SuperKool | `SuperKool` | `super_kool.py` | `super_kool.sql` | `super_kool.md` |
+| SportsSim | `SportsSim` | `sports_sim.py` | `sports_sim.sql` | `sports_sim.md` |
+
+Rules:
+
+- Python file: `<basename>.py`
+- SQL file: `<basename>.sql`
+- Markdown file: `<basename>.md`
+- Python class: class-cased form of the workload name
+- For acronyms, preserve the class acronym and lowercase the file basename:
+  `ABC` becomes `abc.py`, `abc.sql`, and `abc.md`.
+
+## Companion Markdown File
+
+Every generated workload bundle should include `<basename>.md` with enough
+context for a human to understand, run, and adjust the simulation.
+
+Use this section structure by default:
+
+```markdown
+# <WorkloadName> Workload Model
+
+## Simplified Understanding
+
+## Implemented Class
+
+## Default Mix
+
+## Suggested Run Shape
+
+## Fidelity Limits
+```
+
+The Markdown file should explain:
+
+- what real workload is being modeled,
+- the simplified interpretation used by the simulation,
+- which `txn_*` methods map to which real workflows,
+- default transaction mix or weights,
+- important `--args` parameters,
+- an example `dbworkload run` command,
+- assumptions and fidelity limits.
+
+Example run command:
+
+```bash
+dbworkload run \
+  --driver postgres \
+  --workload abc.py \
+  --concurrency 128 \
+  --duration 1200 \
+  --args '{"account_count": 100000, "tlc_accounts": 2000, "tlc_pct": 80}'
+```
+
+## Minimal SQL DDL File
+
+Every generated workload bundle should include `<basename>.sql` with only the
+database objects required by the generated workload. It should be concise, not a
+dump of a full production schema.
+
+Include only what is needed:
+
+- required schemas,
+- required enum/type definitions,
+- tables referenced by the workload,
+- columns used by inserts, selects, updates, conflict targets, and predicates,
+- primary keys and unique constraints needed by `ON CONFLICT`,
+- indexes needed by explicit index hints or important query shapes.
+
+Cross-check the Python and SQL files before finishing:
+
+- every table referenced in `<basename>.py` exists in `<basename>.sql`,
+- every inserted column exists,
+- every updated or selected predicate column exists,
+- every explicit index hint exists,
+- every `ON CONFLICT (...)` target has a matching primary key or unique index,
+- every custom enum cast used in SQL has a matching type definition.
+
+## Final Artifact Checklist
+
+Before considering a generated workload complete, verify:
+
+- [ ] `<basename>.py` contains class `<ClassName>`.
+- [ ] `<basename>.py` compiles.
+- [ ] `<basename>.py` has direct `txn_*` methods with docstrings.
+- [ ] `loop()` returns a list of transaction functions, preferably a prebuilt
+      schedule for weighted mixes.
+- [ ] `<basename>.sql` includes all required DDL.
+- [ ] `<basename>.md` explains the workload and includes a runnable
+      `dbworkload run` command.
+- [ ] File basenames match across `.py`, `.sql`, and `.md`.
+
 ## Preferred Class Shape
 
 Use `__init__(args)` for configuration, optional `setup()` for per-worker
