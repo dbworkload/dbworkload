@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import importlib
+import importlib.util
 import logging
 import os
 import random
@@ -300,7 +300,7 @@ def set_query_parameter(url: str, param_name: str, param_value: str):
 
 
 def import_class_at_runtime(path: str):
-    """Imports a class with the same name of the module capitalized.
+    """Imports a class with a name derived from the module name.
     Example: 'workloads/bank.py' returns class 'Bank' in module 'bank'
 
     Args:
@@ -311,18 +311,36 @@ def import_class_at_runtime(path: str):
     """
 
     # load the module at runtime
-    sys.path.append(os.path.dirname(path))
+    module_dir = os.path.dirname(path)
     module_name = os.path.splitext(os.path.basename(path))[0]
+    class_names = [
+        "".join(part.capitalize() for part in module_name.split("_")),
+        module_name.upper(),
+    ]
 
     try:
-        module = importlib.import_module(module_name)
-        return getattr(module, module_name.capitalize())
+        sys.path.insert(0, module_dir)
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot import module from '{path}'")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for class_name in class_names:
+            if hasattr(module, class_name):
+                return getattr(module, class_name)
+        raise AttributeError(
+            f"module '{module_name}' has none of the expected classes: "
+            f"{', '.join(class_names)}"
+        )
     except AttributeError as e:
         logger.error(e)
         sys.exit(1)
     except ImportError as e:
         logger.error(e)
         sys.exit(1)
+    finally:
+        if module_dir in sys.path:
+            sys.path.remove(module_dir)
 
 
 def get_based_name_dir(filepath: str):
