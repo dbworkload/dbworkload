@@ -310,7 +310,9 @@ def import_class_at_runtime(path: str):
         class: the imported class
     """
 
-    # load the module at runtime
+    # Load the workload module by exact filepath, but keep it importable by
+    # module name so multiprocessing can pickle workload classes.
+    path = os.path.abspath(os.fspath(path))
     module_dir = os.path.dirname(path)
     module_name = os.path.splitext(os.path.basename(path))[0]
     class_names = [
@@ -319,11 +321,13 @@ def import_class_at_runtime(path: str):
     ]
 
     try:
-        sys.path.insert(0, module_dir)
+        if module_dir not in sys.path:
+            sys.path.insert(0, module_dir)
         spec = importlib.util.spec_from_file_location(module_name, path)
         if spec is None or spec.loader is None:
             raise ImportError(f"cannot import module from '{path}'")
         module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
         spec.loader.exec_module(module)
         for class_name in class_names:
             if hasattr(module, class_name):
@@ -338,9 +342,6 @@ def import_class_at_runtime(path: str):
     except ImportError as e:
         logger.error(e)
         sys.exit(1)
-    finally:
-        if module_dir in sys.path:
-            sys.path.remove(module_dir)
 
 
 def get_based_name_dir(filepath: str):
