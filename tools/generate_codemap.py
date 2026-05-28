@@ -3,43 +3,83 @@ from __future__ import annotations
 
 import ast
 import sys
+import tomllib
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "dbworkload"
 OUTPUT = ROOT / "CODEMAP.md"
-
-LAYER_NOTES = {
-    "dbworkload/cli/main.py": "Typer CLI entrypoint. Parses run options, builds connection info, and dispatches command handlers.",
-    "dbworkload/cli/util.py": "Typer subcommands under `dbworkload util`; delegates behavior to command implementations.",
-    "dbworkload/cli/dep.py": "Shared CLI parameter declarations and command epilog.",
-    "dbworkload/connection.py": "Shared connection info container used across CLI parsing and command runtime.",
-    "dbworkload/commands/run.py": "Workload runtime command implementation: starts supervisors/workers, manages schedules, reports stats.",
-    "dbworkload/commands/util.py": "Utility command implementations for CSV/YAML generation, charting, stub generation, and CSV merging.",
-    "dbworkload/commands/convert.py": "Experimental PL to PL/pgSQL conversion workflow using local or remote LLM providers.",
-    "dbworkload/commands/prompts.py": "Prompt templates used by the conversion workflow.",
-    "dbworkload/utils/common.py": "Shared helpers for runtime imports, stats aggregation, Prometheus publishing, DDL parsing, and URI handling.",
-    "dbworkload/utils/simplefaker.py": "YAML-driven fake data generator used by the CSV utility command.",
-    "dbworkload/utils/tdigest.py": "Small adapter layer around tdigest centroid/value conversion.",
-    "dbworkload/mcp/server.py": "MCP server exposing workload authoring docs and bounded workload execution tools.",
+SKIP_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
 }
-
-AGENT_RULES = [
-    "Keep CLI argument parsing and Typer annotations in `dbworkload/cli/`; put command behavior in `dbworkload/commands/`.",
-    "Prefer explicit imports or short module aliases over long fully-qualified calls in implementation code.",
-    "Do not make runtime command code depend on CLI-only concerns; put shared data containers in neutral modules.",
-    "Keep workload class loading behavior centralized in `dbworkload/utils/common.py` unless it is split into a dedicated import helper module.",
-    "Keep generated user-facing docs under `docs/`; keep MCP-specific packaged docs under `dbworkload/mcp/`.",
-    "Regenerate this file after package moves, entrypoint changes, or major command-flow changes.",
-]
 
 
 def rel(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
-def public_defs(path: Path) -> tuple[list[str], list[str]]:
-    tree = ast.parse(path.read_text(), filename=str(path))
+def load_pyproject() -> dict[str, Any]:
+    path = ROOT / "pyproject.toml"
+    if not path.exists():
+        return {}
+    return tomllib.loads(path.read_text())
+
+
+def project_name(pyproject: dict[str, Any]) -> str:
+    poetry = pyproject.get("tool", {}).get("poetry", {})
+    project = pyproject.get("project", {})
+    return poetry.get("name") or project.get("name") or ROOT.name
+
+
+def script_rows(pyproject: dict[str, Any]) -> list[str]:
+    poetry_scripts = pyproject.get("tool", {}).get("poetry", {}).get("scripts", {})
+    project_scripts = pyproject.get("project", {}).get("scripts", {})
+    scripts = {**project_scripts, **poetry_scripts}
+    return [f"- `{name}` -> `{target}`" for name, target in sorted(scripts.items())]
+
+
+def package_roots(pyproject: dict[str, Any]) -> list[Path]:
+    poetry = pyproject.get("tool", {}).get("poetry", {})
+    roots: set[Path] = set()
+
+    for package in poetry.get("packages", []):
+        include = package.get("include")
+        if include:
+            path = ROOT / include
+            if path.exists():
+                roots.add(path)
+
+    name_root = ROOT / project_name(pyproject).replace("-", "_")
+    if name_root.exists():
+        roots.add(name_root)
+
+    for path in ROOT.iterdir():
+        if path.name in SKIP_DIRS or path.name.startswith("."):
+            continue
+        if path.is_dir() and (path / "__init__.py").exists():
+            roots.add(path)
+
+    return sorted(roots)
+
+
+def iter_python_files(roots: list[Path]) -> list[Path]:
+    files: list[Path] = []
+    for root in roots:
+        for path in root.rglob("*.py"):
+            if any(part in SKIP_DIRS for part in path.parts):
+                continue
+            files.append(path)
+    return sorted(files)
+
+
+def public_defs(tree: ast.Module) -> tuple[list[str], list[str]]:
     classes: list[str] = []
     functions: list[str] = []
 
@@ -54,71 +94,83 @@ def public_defs(path: Path) -> tuple[list[str], list[str]]:
     return classes, functions
 
 
-def module_rows() -> list[str]:
+def import_names(tree: ast.Module) -> list[str]:
+    imports: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.level:
+                imports.add("." * node.level + node.module)
+            else:
+                imports.add(node.module.split(".")[0])
+    return sorted(imports)
+
+
+def module_rows(files: list[Path]) -> list[str]:
     rows = []
-    for path in sorted(PACKAGE.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        name = rel(path)
-        classes, functions = public_defs(path)
-        symbols = []
+    for path in files:
+        tree = ast.parse(path.read_text(), filename=str(path))
+        doc = ast.get_docstring(tree)
+        classes, functions = public_defs(tree)
+        imports = import_names(tree)
+
+        details = []
+        if doc:
+            details.append(doc.splitlines()[0])
         if classes:
-            symbols.append("classes: " + ", ".join(classes))
+            details.append("classes: " + ", ".join(classes))
         if functions:
-            symbols.append("functions: " + ", ".join(functions))
+            details.append("functions: " + ", ".join(functions))
+        if imports:
+            details.append("imports: " + ", ".join(imports))
 
-        note = LAYER_NOTES.get(name, "")
-        detail = "; ".join(symbols) if symbols else "no public classes/functions"
-        if note:
-            detail = f"{note} {detail}"
-
-        rows.append(f"| `{name}` | {detail} |")
+        rows.append(
+            f"| `{rel(path)}` | {'; '.join(details) if details else 'no public surface'} |"
+        )
     return rows
 
 
 def render() -> str:
+    pyproject = load_pyproject()
+    roots = package_roots(pyproject)
+    files = iter_python_files(roots)
+    scripts = script_rows(pyproject)
+
     lines = [
         "# Code Map",
         "",
         "<!-- Generated by tools/generate_codemap.py. Do not edit by hand. -->",
         "",
-        "This file is a compact guide for humans and LLM agents working in this repository.",
+        "This file is a deterministic map of the Python package surface in this repository.",
         "Regenerate it after structural code changes with:",
         "",
         "```bash",
         "python3 tools/generate_codemap.py",
         "```",
         "",
-        "## Golden Flows",
+        "## Project",
         "",
-        "- CLI run: `dbworkload.cli.main` -> `commands.run:run` -> supervisors -> workers -> workload class methods.",
-        "- Connection setup: CLI `--uri` parsing -> `ConnInfo` -> command runtime `get_connection()`.",
-        "- Utility commands: `dbworkload.cli.util` -> `dbworkload.commands.util` -> shared helpers/templates.",
-        "- Conversion workflow: `dbworkload.cli.util cli_convert` -> `ConvertTool` -> prompts/providers -> generated/refined SQL.",
-        "- MCP tools: `dbworkload.mcp.server` -> shell out to bounded `dbworkload run` invocations.",
+        f"- Name: `{project_name(pyproject)}`",
+        f"- Package roots: {', '.join(f'`{rel(root)}`' for root in roots) or 'none found'}",
         "",
         "## Entry Points",
         "",
-        "- `dbworkload` -> `dbworkload.cli.main:app`",
-        "- `dbworkload-mcp-server` -> `dbworkload.mcp.server:main`",
-        "",
-        "## Agent Rules",
-        "",
     ]
 
-    lines.extend(f"- {rule}" for rule in AGENT_RULES)
+    lines.extend(scripts or ["- none found"])
     lines.extend(
         [
             "",
             "## Modules",
             "",
-            "| File | Purpose / Public Surface |",
+            "| File | Public Surface |",
             "| --- | --- |",
-            *module_rows(),
+            *module_rows(files),
             "",
         ]
     )
-
     return "\n".join(lines)
 
 
