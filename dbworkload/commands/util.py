@@ -20,10 +20,8 @@ import yaml
 from jinja2 import Environment, PackageLoader
 from plotly.subplots import make_subplots
 
-import dbworkload
-import dbworkload.utils.common
-import dbworkload.utils.simplefaker
-import dbworkload.utils.tdigest as tdigest
+from dbworkload.utils import common, tdigest
+from dbworkload.utils.simplefaker import SimpleFaker
 
 logger = logging.getLogger("dbworkload")
 logger.setLevel(logging.INFO)
@@ -47,7 +45,7 @@ def util_csv(
         load: dict = yaml.safe_load(f.read())
 
     if not output:
-        output_dir = dbworkload.utils.common.get_based_name_dir(input)
+        output_dir = common.get_based_name_dir(input)
     else:
         output_dir = output
 
@@ -69,7 +67,7 @@ def util_csv(
     if not procs:
         procs = os.cpu_count()
 
-    dbworkload.utils.simplefaker.SimpleFaker(csv_max_rows=csv_max_rows).generate(
+    SimpleFaker(csv_max_rows=csv_max_rows).generate(
         load, int(procs), output_dir, delimiter, compression
     )
 
@@ -78,7 +76,7 @@ def util_csv(
     for table_name in load.keys():
         print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
 
-        for s in dbworkload.utils.common.get_import_stmts(
+        for s in common.get_import_stmts(
             [x for x in csv_files if x.startswith(table_name)],
             table_name,
             http_server_hostname,
@@ -101,7 +99,7 @@ def util_yaml(input: PosixPath, output: PosixPath):
         ddl = f.read()
 
     if not output:
-        output = dbworkload.utils.common.get_based_name_dir(input) + ".yaml"
+        output = common.get_based_name_dir(input) + ".yaml"
 
     # backup the current file as to not override
     if os.path.exists(output):
@@ -114,7 +112,7 @@ def util_yaml(input: PosixPath, output: PosixPath):
 
     # create new file
     with open(output, "w") as f:
-        f.write(dbworkload.utils.common.ddl_to_yaml(ddl))
+        f.write(common.ddl_to_yaml(ddl))
 
 
 def util_merge_sort(input_dir: str, output_dir: str, csv_max_rows: int, compress: bool):

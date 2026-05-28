@@ -17,8 +17,8 @@ import numpy as np
 import tabulate
 from psutil import cpu_percent, virtual_memory
 
-import dbworkload.utils.common
-from dbworkload.cli.dep import ConnInfo
+from dbworkload.connection import ConnInfo
+from dbworkload.utils.common import Prom, Stats, WorkerStats, import_class_at_runtime
 
 # from cassandra.cluster import Cluster, ExecutionProfile, EXEC_PROFILE_DEFAULT, Session
 # from cassandra.policies import (
@@ -311,7 +311,7 @@ def run(
     logger.setLevel(log_level)
 
     start_time = int(time.time())
-    workload = dbworkload.utils.common.import_class_at_runtime(workload_path)
+    workload = import_class_at_runtime(workload_path)
 
     run_name = (
         workload.__name__
@@ -333,9 +333,9 @@ def run(
     # register Ctrl+C handler
     signal.signal(signal.SIGINT, signal_handler)
 
-    stats = dbworkload.utils.common.Stats(start_time)
+    stats = Stats(start_time)
 
-    prom = dbworkload.utils.common.Prom(prom_port, stats, histogram_bins)
+    prom = Prom(prom_port, stats, histogram_bins)
 
     to_main_q = mp.Queue()
 
@@ -700,7 +700,7 @@ def worker(
 
     conn_endtime = 0
 
-    ws = dbworkload.utils.common.WorkerStats()
+    ws = WorkerStats()
 
     run_init = True
 

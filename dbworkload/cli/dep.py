@@ -2,15 +2,7 @@
 
 import typer
 
-from .. import __version__
-
 EPILOG = "Docs: <https://dbworkload.github.io/dbworkload/>"
-
-
-class ConnInfo:
-    def __init__(self) -> None:
-        self.params: dict = {}
-        self.extras: dict = {}
 
 
 class Param:

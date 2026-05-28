@@ -7,11 +7,11 @@ from typing import Optional
 
 import typer
 
-import dbworkload.models.util
+from dbworkload.commands import util as util_commands
 from dbworkload.cli.dep import EPILOG, Param
 
 try:
-    from ..models.convert import ConvertTool
+    from ..commands.convert import ConvertTool
 except:
     pass
 
@@ -91,7 +91,7 @@ def util_csv(
         show_default=False,
     ),
 ):
-    dbworkload.models.util.util_csv(
+    util_commands.util_csv(
         input=input,
         output=output,
         compression=compression,
@@ -136,7 +136,7 @@ def util_yaml(
         resolve_path=True,
     ),
 ):
-    dbworkload.models.util.util_yaml(input=input, output=output)
+    util_commands.util_yaml(input=input, output=output)
 
 
 @util_app.command(
@@ -179,7 +179,7 @@ def util_sort_merge(
         help="Do not gzip output files.",
     ),
 ):
-    dbworkload.models.util.util_merge_sort(input, output, csv_max_rows, compress)
+    util_commands.util_merge_sort(input, output, csv_max_rows, compress)
 
 
 @util_app.command(
@@ -202,7 +202,7 @@ def util_plot(
         resolve_path=True,
     ),
 ):
-    dbworkload.models.util.util_plot(input)
+    util_commands.util_plot(input)
 
 
 @util_app.command(
@@ -225,7 +225,7 @@ def util_html(
         resolve_path=True,
     ),
 ):
-    dbworkload.models.util.util_html(input)
+    util_commands.util_html(input)
 
 
 @util_app.command(
@@ -248,7 +248,7 @@ def util_merge_csvs(
         resolve_path=True,
     ),
 ):
-    dbworkload.models.util.util_merge_csvs(input_dir)
+    util_commands.util_merge_csvs(input_dir)
 
 
 @util_app.command(
@@ -271,7 +271,7 @@ def util_gen_stub(
         resolve_path=True,
     ),
 ):
-    dbworkload.models.util.util_gen_stub(input_file)
+    util_commands.util_gen_stub(input_file)
 
 
 @util_app.command(

@@ -14,10 +14,11 @@ import pandas as pd
 import typer
 import yaml
 
-import dbworkload.cli.util
-import dbworkload.models.run
-import dbworkload.utils.common
-from dbworkload.cli.dep import EPILOG, ConnInfo, Param
+from dbworkload.cli.util import util_app
+from dbworkload.commands.run import run as run_workload
+from dbworkload.cli.dep import EPILOG, Param
+from dbworkload.connection import ConnInfo
+from dbworkload.utils import common
 
 from .. import __version__
 
@@ -43,7 +44,7 @@ app = typer.Typer(
 )
 
 
-app.add_typer(dbworkload.cli.util.util_app, name="util")
+app.add_typer(util_app, name="util")
 
 version: bool = typer.Option(True)
 
@@ -58,7 +59,7 @@ class LogLevel(str, Enum):
 @app.command(help="Run the workload.", epilog=EPILOG, no_args_is_help=True)
 def run(
     workload_path: Optional[Path] = typer.Option(
-        None,
+        ...,
         "--workload",
         "-w",
         help="Filepath to the workload module.",
@@ -74,7 +75,7 @@ def run(
         help="DBMS driver.",
     ),
     uri: str = typer.Option(
-        None,
+        ...,
         "--uri",
         help="The connection URI to the database.",
     ),
@@ -166,7 +167,7 @@ def run(
         procs = os.cpu_count()
 
     # check workload is a valid module and class
-    workload = dbworkload.utils.common.import_class_at_runtime(workload_path)
+    workload = common.import_class_at_runtime(workload_path)
 
     conn_info = ConnInfo()
 
@@ -174,7 +175,7 @@ def run(
     parse_result = urlparse(uri)
 
     if parse_result.scheme:
-        driver = dbworkload.utils.common.get_driver_from_scheme(parse_result.scheme)
+        driver = common.get_driver_from_scheme(parse_result.scheme)
         if driver is None:
             logger.error(
                 f"Could not find a driver for URI scheme '{parse_result.scheme}'."
@@ -182,7 +183,7 @@ def run(
             sys.exit(1)
 
         if get_app_name(driver):
-            uri = dbworkload.utils.common.set_query_parameter(
+            uri = common.set_query_parameter(
                 url=uri,
                 param_name=get_app_name(driver),
                 param_value=app_name if app_name else workload.__name__,
@@ -245,7 +246,7 @@ def run(
     histogram_bins = histogram_bins.split(",")
     schedule = load_schedule(schedule)
 
-    dbworkload.models.run.run(
+    run_workload(
         concurrency,
         workload_path,
         prom_port,

@@ -7,7 +7,7 @@ You deeply understand:
 
 * Oracle PL/SQL procedural constructs and architecture
 * PostgreSQL PL/pgSQL language features
-* CockroachDB’s stored procedure semantics and SQL compatibility layer
+* CockroachDB's stored procedure semantics and SQL compatibility layer
 
 ---
 

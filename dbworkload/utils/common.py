@@ -14,7 +14,7 @@ import yaml
 from prometheus_client.core import REGISTRY, HistogramMetricFamily
 from prometheus_client.registry import Collector
 
-import dbworkload.utils.tdigest as tdigest
+from . import tdigest
 from fastdigest import TDigest
 
 RESERVED_WORDS = [
