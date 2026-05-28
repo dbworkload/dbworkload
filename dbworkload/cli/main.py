@@ -8,7 +8,7 @@ import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import pandas as pd
 import typer
@@ -34,6 +34,7 @@ class Driver(str, Enum):
     cassandra = "cassandra"
     spanner = "spanner"
     pinecone = "pinecone"
+    dsql = "dsql"
 
 
 app = typer.Typer(
@@ -174,12 +175,18 @@ def run(
     parse_result = urlparse(uri)
 
     if parse_result.scheme:
-        driver = dbworkload.utils.common.get_driver_from_scheme(parse_result.scheme)
-        if driver is None:
+        detected_driver = dbworkload.utils.common.get_driver_from_scheme(parse_result.scheme)
+        if detected_driver is None:
             logger.error(
                 f"Could not find a driver for URI scheme '{parse_result.scheme}'."
             )
             sys.exit(1)
+
+        # Use explicitly provided --driver if set, otherwise use detected driver
+        if driver is not None:
+            driver = driver.value if isinstance(driver, Driver) else driver
+        else:
+            driver = detected_driver
 
         if get_app_name(driver):
             uri = dbworkload.utils.common.set_query_parameter(
@@ -190,6 +197,20 @@ def run(
 
         if driver == "postgres":
             conn_info.params["conninfo"] = uri
+
+        elif driver == "dsql":
+            # Parse URI into components for the aurora-dsql-python-connector
+            # which handles IAM token generation automatically
+            dsql_parsed = urlparse(uri)
+            conn_info.params["host"] = dsql_parsed.hostname
+            conn_info.params["user"] = dsql_parsed.username or "admin"
+            if dsql_parsed.port:
+                conn_info.params["port"] = dsql_parsed.port
+            if dsql_parsed.path and dsql_parsed.path != "/":
+                conn_info.params["dbname"] = dsql_parsed.path.lstrip("/")
+            # Pass through query string params (sslmode, sslrootcert, application_name, etc.)
+            for key, values in parse_qs(dsql_parsed.query).items():
+                conn_info.params[key] = values[0]
 
         elif driver == "mongo":
             conn_info.params["host"] = uri
@@ -206,7 +227,7 @@ def run(
 
         driver = driver.value
 
-    if driver == "postgres":
+    if driver in ("postgres", "dsql"):
         conn_info.params["autocommit"] = autocommit
 
     if driver in ["mysql", "maria"]:
@@ -269,6 +290,8 @@ def run(
 
 def get_app_name(driver: str):
     if driver == "postgres":
+        return "application_name"
+    elif driver == "dsql":
         return "application_name"
     elif driver == "mysql":
         return

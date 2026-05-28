@@ -677,7 +677,10 @@ def worker(
 ):
     def gracefully_return(msg):
         # send final stats
-        to_main_q.put(ws.get_tdigest_ndarray(), block=False)
+        try:
+            to_main_q.put(ws.get_tdigest_ndarray(), block=False)
+        except (TypeError, ValueError):
+            pass
 
         # send notification to MainThread
         to_main_q.put(msg)
@@ -798,7 +801,10 @@ def worker(
                     if to_main_q.full():
                         logger.error("=========== Q FULL!!!! ======================")
                     if time.time() >= stat_time:
-                        to_main_q.put(ws.get_tdigest_ndarray(), block=False)
+                        try:
+                            to_main_q.put(ws.get_tdigest_ndarray(), block=False)
+                        except (TypeError, ValueError):
+                            pass
                         ws.new_window()
                         stat_time += FREQUENCY
 
@@ -810,6 +816,19 @@ def worker(
                     to_main_q.put(e)
                     return
                 log_and_sleep(e)
+
+            elif driver == "dsql":
+                import psycopg
+
+                if isinstance(e, psycopg.errors.UndefinedTable):
+                    to_main_q.put(e)
+                    return
+                if isinstance(e, (psycopg.Error, psycopg.Warning)):
+                    log_and_sleep(e)
+                else:
+                    logger.error(type(e), stack_info=True)
+                    to_main_q.put(e)
+                    return
 
             elif driver == "mysql":
                 import mysql.connector.errorcode
@@ -929,6 +948,15 @@ def run_transaction(conn, op, driver: str, max_retries=3):
                     time.sleep((2**retry) * 0.1 * (random.random() + 0.5))
                 else:
                     raise e
+            elif driver == "dsql":
+                import psycopg.errors
+
+                if isinstance(e, psycopg.errors.SerializationFailure):
+                    logger.debug(f"SerializationFailure:: {e}")
+                    conn.rollback()
+                    time.sleep((2**retry) * 0.1 * (random.random() + 0.5))
+                else:
+                    raise e
             else:
                 raise e
     logger.debug(f"Transaction did not succeed after {max_retries} retries")
@@ -955,6 +983,10 @@ def get_connection(driver: str, conn_info: ConnInfo):
         import psycopg
 
         return psycopg.connect(**conn_info.params, connect_timeout=5)
+    elif driver == "dsql":
+        import aurora_dsql_psycopg as dsql
+
+        return dsql.connect(**conn_info.params, connect_timeout=5)
     elif driver == "mysql":
         import mysql.connector
 
