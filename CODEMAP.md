@@ -29,9 +29,9 @@ python3 tools/generate_codemap.py
 | `dbworkload/cli/util.py` | classes: Compression; functions: util_csv, util_yaml, util_sort_merge, util_plot, util_html, util_merge_csvs, util_gen_stub, cli_convert; imports: dbworkload, enum, pathlib, sys, typer, typing |
 | `dbworkload/commands/__init__.py` | Command implementation modules for dbworkload. |
 | `dbworkload/commands/convert.py` | classes: CockroachDBVectorStore, ConversionState, ConvertTool; functions: get_llm; imports: ..utils.common, .prompts, binascii, fastembed, json, langchain_core, langchain_ollama, langchain_openai, langgraph, logging, openai, os, pgvector, psycopg, re, sqlparse, time, typing, yaml |
-| `dbworkload/commands/gil_free_threaded.py` | Experimental GIL-free threaded runtime scaffold.; functions: run; imports: dbworkload, logging, pathlib, sys |
 | `dbworkload/commands/prompts.py` | no public surface |
 | `dbworkload/commands/run.py` | functions: signal_handler, cycle, launch_or_kill_workers, run, supervisor, worker, listen_to_pipe, log_and_sleep, print_stats, run_transaction, get_connection_with_context, get_connection; imports: contextlib, dbworkload, errno, logging, multiprocessing, numpy, os, psutil, queue, random, signal, sys, tabulate, threading, time, traceback |
+| `dbworkload/commands/run_gil_free.py` | Experimental GIL-free threaded runtime.; classes: RunState; functions: run, worker, is_retryable_driver_error; imports: dataclasses, dbworkload, logging, numpy, pathlib, psutil, random, signal, sys, tabulate, threading, time, traceback |
 | `dbworkload/commands/util.py` | functions: util_csv, util_yaml, util_merge_sort, util_plot, util_html, util_merge_csvs, util_gen_stub; imports: datetime, dbworkload, gzip, io, itertools, jinja2, logging, numpy, os, pandas, pathlib, plotext, plotly, shutil, sqlparse, sys, yaml |
 | `dbworkload/connection.py` | classes: ConnInfo; imports: dataclasses |
 | `dbworkload/mcp/__init__.py` | MCP helpers for dbworkload. |

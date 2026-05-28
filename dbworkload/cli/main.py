@@ -15,8 +15,8 @@ import typer
 import yaml
 
 from dbworkload.cli.util import util_app
-from dbworkload.commands.gil_free_threaded import (
-    run as gil_free_threaded_run_workload,
+from dbworkload.commands.run_gil_free import (
+    run as gil_free_run_workload,
 )
 from dbworkload.commands.run import run as multiprocessing_run_workload
 from dbworkload.cli.dep import EPILOG, Param
@@ -61,7 +61,7 @@ class LogLevel(str, Enum):
 
 class Runtime(str, Enum):
     multiprocessing = "multiprocessing"
-    gil_free_threaded = "gil-free-threaded"
+    gil_free = "gil-free"
 
 
 @app.command(help="Run the workload.", epilog=EPILOG, no_args_is_help=True)
@@ -261,7 +261,7 @@ def run(
 
     run_impl = {
         Runtime.multiprocessing: multiprocessing_run_workload,
-        Runtime.gil_free_threaded: gil_free_threaded_run_workload,
+        Runtime.gil_free: gil_free_run_workload,
     }[runtime]
 
     run_impl(
