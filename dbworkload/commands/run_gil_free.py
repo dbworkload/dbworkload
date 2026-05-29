@@ -73,6 +73,17 @@ class RunState:
         self.stop_event.set()
 
 
+def require_gil_disabled() -> None:
+    is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
+
+    if is_gil_enabled is None:
+        logger.error("The GIL-free runtime requires Python 3.13+ free-threaded builds.")
+        sys.exit(1)
+
+    if is_gil_enabled():
+        logger.error("The GIL is enabled. Refusing to run --runtime gil-free.")
+        sys.exit(1)
+
 def run(
     concurrency: int,
     workload_path: Path,
@@ -94,6 +105,9 @@ def run(
     log_level: str,
 ):
     """Run a workload with the experimental GIL-free threaded runtime."""
+    
+    require_gil_disabled()
+
     # TODO: implement max-rate concurrency adjustments for the GIL-free runtime.
     if max_rate:
         logger.error("--runtime gil-free does not support --max-rate yet.")
