@@ -833,7 +833,7 @@ def worker(
 
             elif driver == "pinecone":
                 from pinecone.exceptions import PineconeException
-                
+
                 if isinstance(e, PineconeException):
                     status = getattr(e, "status", None)
 
@@ -844,7 +844,6 @@ def worker(
 
                     # retryable (service errors, transient failures)
                     log_and_sleep(e)
-
 
             else:
                 # for all other Exceptions, report and return
@@ -978,7 +977,7 @@ def get_connection(driver: str, conn_info: ConnInfo):
 
     elif driver == "pinecone":
         from pinecone import Pinecone
-        
+
         pc = Pinecone(api_key=conn_info.params["api_key"])
         return pc.Index(conn_info.params["index_name"])
 

@@ -255,7 +255,7 @@ class ConvertTool:
         logger.info(f"⚙️  Validator Node (Attempt #{state['attempts'] + 1})")
 
         error_messages = []
-        
+
         # sanitize the code
         converted_code = self.extract_sql_block(state["converted_code"])
 
@@ -322,7 +322,9 @@ class ConvertTool:
                         logger.info(f"{idx=} : 🟢 OK")
                         f.write(f"{idx=} : 🟢 OK ")
                     else:
-                        error_messages.append(f"Actual: {actual[idx]} - Expected: {self.expected_output[str(idx)]}")
+                        error_messages.append(
+                            f"Actual: {actual[idx]} - Expected: {self.expected_output[str(idx)]}"
+                        )
                         logger.info(f"{idx=} : 🔴 FAIL")
                         f.write(f"{idx=} : 🔴 FAIL")
 

@@ -11,11 +11,11 @@ import urllib.parse
 import numpy as np
 import prometheus_client as prom
 import yaml
+from fastdigest import TDigest
 from prometheus_client.core import REGISTRY, HistogramMetricFamily
 from prometheus_client.registry import Collector
 
 from . import tdigest
-from fastdigest import TDigest
 
 RESERVED_WORDS = [
     "unique",
@@ -181,9 +181,7 @@ class CustomHistogram(Collector):
 
         # create buckets from 10 ... 180
         td_count = tdigest.count(td)
-        td_hist = [
-            [x, int(td.cdf((int(x) + 1) / 1000) * td_count)] for x in self.bins
-        ]
+        td_hist = [[x, int(td.cdf((int(x) + 1) / 1000) * td_count)] for x in self.bins]
         td_hist.append(["+Inf", td_count])
 
         return td.mean() * 1000 * td_count, td_hist

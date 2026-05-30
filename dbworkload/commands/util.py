@@ -506,9 +506,7 @@ def util_merge_csvs(input_dir: str):
         and return the new aggregated centroids.
         Note: max_centroids=1000
         """
-        return tdigest.centroids(
-            tdigest.combine(tdigest.from_centroids(y) for y in x)
-        )
+        return tdigest.centroids(tdigest.combine(tdigest.from_centroids(y) for y in x))
 
     # for each elapsed range bucket, merge the data for all `id` together
     # by aggregating the count of `threads` and by aggregating the `centroids`

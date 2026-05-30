@@ -84,6 +84,7 @@ def require_gil_disabled() -> None:
         logger.error("The GIL is enabled. Refusing to run --runtime gil-free.")
         sys.exit(1)
 
+
 def run(
     concurrency: int,
     workload_path: Path,
@@ -105,7 +106,7 @@ def run(
     log_level: str,
 ):
     """Run a workload with the experimental GIL-free threaded runtime."""
-    
+
     require_gil_disabled()
 
     # TODO: implement max-rate concurrency adjustments for the GIL-free runtime.
@@ -172,11 +173,7 @@ def run(
 
             cpu_util = cpu_percent()
             vmem = virtual_memory().percent
-            if (
-                stats_received != active_connections
-                or cpu_util > 70
-                or vmem > 70
-            ):
+            if stats_received != active_connections or cpu_util > 70 or vmem > 70:
                 logger.warning(
                     f"{stats_received=}, expected={active_connections}. "
                     f"CPU Util={cpu_util}%, Memory={vmem}%"

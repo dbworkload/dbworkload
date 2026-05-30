@@ -123,13 +123,9 @@ class Kv:
                     f"Fetching {self.key_pool_preload_size} rows from {self.table_name}."
                 )
                 self.key_pool.clear()
-                self.key_pool.extend(
-                    cur.execute(
-                        f"""select {self.key_id} 
+                self.key_pool.extend(cur.execute(f"""select {self.key_id} 
                         from {self.table_name} as of system time follower_read_timestamp() 
-                        limit {self.key_pool_preload_size}"""
-                    ).fetchall()
-                )
+                        limit {self.key_pool_preload_size}""").fetchall())
 
     def loop(self):
         def get_func():

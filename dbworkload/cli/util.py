@@ -7,8 +7,8 @@ from typing import Optional
 
 import typer
 
-from dbworkload.commands import util as util_commands
 from dbworkload.cli.dep import EPILOG, Param
+from dbworkload.commands import util as util_commands
 
 try:
     from ..commands.convert import ConvertTool

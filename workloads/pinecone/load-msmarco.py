@@ -1,10 +1,10 @@
 import argparse
 import gzip
 import json
+
 from pinecone import Pinecone
 from pinecone.db_data.index import Index
 from sentence_transformers import SentenceTransformer
-
 
 # --- config ---
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # dim = 384
@@ -21,32 +21,37 @@ def parse_args():
     )
 
     parser.add_argument(
-        "-m", "--msmarco-path",
+        "-m",
+        "--msmarco-path",
         required=True,
         help="Path to msmarco_passage_*.gz file",
     )
 
     parser.add_argument(
-        "-i", "--index-name",
+        "-i",
+        "--index-name",
         required=True,
         help="Pinecone index name",
     )
 
     parser.add_argument(
-        "-k", "--api-key",
+        "-k",
+        "--api-key",
         required=True,
         help="Pinecone API key",
     )
 
     parser.add_argument(
-        "-b", "--batch-size",
+        "-b",
+        "--batch-size",
         type=int,
         default=1000,
         help="Batch size for upserts (default: 1000)",
     )
 
     parser.add_argument(
-        "-s", "--skip",
+        "-s",
+        "--skip",
         type=int,
         default=0,
         help="Number of initial lines to skip (default: 0)",
@@ -92,13 +97,7 @@ def main():
             if len(batch_ids) >= args.batch_size:
                 embeddings = embed(model, batch_texts)
 
-                vectors = [
-                    (
-                        pid,
-                        emb
-                    )
-                    for pid, emb in zip(batch_ids, embeddings)
-                ]
+                vectors = [(pid, emb) for pid, emb in zip(batch_ids, embeddings)]
 
                 index.upsert(vectors=vectors)
                 print(f"[line {line_num}]")
@@ -110,17 +109,10 @@ def main():
     if batch_ids:
         embeddings = embed(model, batch_texts)
 
-        vectors = [
-            (
-                pid,
-                emb
-            )
-            for pid, emb in zip(batch_ids, embeddings)
-        ]
+        vectors = [(pid, emb) for pid, emb in zip(batch_ids, embeddings)]
 
         index.upsert(vectors=vectors)
         print(f"[line {line_num}]")
-
 
     print("Done.")
 

@@ -7,7 +7,6 @@ import sys
 from importlib import metadata, resources
 from pathlib import Path
 
-
 SERVER_NAME = "dbworkload-helper"
 SKILLS_RESOURCE_URI = "dbworkload://docs/skills"
 INFO_RESOURCE_URI = "dbworkload://server/info"
@@ -151,7 +150,9 @@ def create_app():
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:
-        msg = "The MCP server requires the optional dependency: install dbworkload[mcp]."
+        msg = (
+            "The MCP server requires the optional dependency: install dbworkload[mcp]."
+        )
         raise RuntimeError(msg) from exc
 
     app = FastMCP(SERVER_NAME)

@@ -1,5 +1,83 @@
 #!/usr/bin/python
 
+# =====================================================================
+# GIL Guard: Prevent dynamic imports
+# from re-enabling the GIL in a long-running process
+# =====================================================================
+import sys
+from importlib.abc import MetaPathFinder
+
+
+class GILGuardLoaderWrapper:
+    """Wraps a module's original loader to check the GIL after it executes."""
+
+    def __init__(self, original_loader):
+        self.original_loader = original_loader
+
+    def create_module(self, spec):
+        """Mandatory when exec_module is defined.
+
+        Passes through to the original loader if it exists, otherwise
+        returns None to let Python handle default module instantiation.
+        """
+        if hasattr(self.original_loader, "create_module"):
+            return self.original_loader.create_module(spec)
+        return None
+
+    def exec_module(self, module):
+        # 1. Let the module execute its code normally (e.g., loading C-extensions)
+        self.original_loader.exec_module(module)
+
+        # 2. THE TRAP SNAPS: This runs the millisecond the module finishes loading!
+        if sys._is_gil_enabled():
+            print(
+                f"\n[PERFORMANCE VIOLATION] Import of '{module.__name__}' re-enabled the GIL! "
+                f"Terminating CLI process immediately to maintain multi-core integrity.\n"
+            )
+            sys.exit(1)
+
+
+class GILGuardFinder(MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        # Prevent infinite recursion by ignoring our own guard logic
+        if fullname == "logging" or "importlib" in fullname:
+            return None
+
+        # Temporarily remove ourselves to let Python's default finders locate the module
+        sys.meta_path.remove(self)
+        try:
+            import importlib.util
+
+            # Find the actual module spec using standard machinery
+            spec = importlib.util.find_spec(fullname, path)
+
+            if spec is not None and spec.loader is not None:
+                # Intercept the loader with our wrapper guard
+                spec.loader = GILGuardLoaderWrapper(spec.loader)
+            return spec
+        finally:
+            # Re-inject ourselves at the front of the line for the next import
+            sys.meta_path.insert(0, self)
+
+
+is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
+
+if is_gil_enabled is None:
+    print("FATAL: The GIL-free runtime requires Python 3.13+ free-threaded builds.")
+    sys.exit(1)
+
+if is_gil_enabled():
+    print("FATAL: The GIL is enabled. Refusing to run --runtime gil-free.")
+    sys.exit(1)
+
+sys.meta_path.insert(0, GILGuardFinder())
+print("GIL Guard enabled.")
+
+
+# =====================================================================
+# End of GIL Guard implementation
+# =====================================================================
+
 import json
 import logging
 import os
@@ -14,12 +92,10 @@ import pandas as pd
 import typer
 import yaml
 
-from dbworkload.cli.util import util_app
-from dbworkload.commands.run_gil_free import (
-    run as gil_free_run_workload,
-)
-from dbworkload.commands.run import run as multiprocessing_run_workload
 from dbworkload.cli.dep import EPILOG, Param
+from dbworkload.cli.util import util_app
+from dbworkload.commands.run import run as multiprocessing_run_workload
+from dbworkload.commands.run_gil_free import run as gil_free_run_workload
 from dbworkload.connection import ConnInfo
 from dbworkload.utils import common
 
