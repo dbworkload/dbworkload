@@ -93,6 +93,7 @@ nav:
     - docs/how_it_works.md
     - Run Options:
         - docs/run/index.md
+        - docs/run/gil-free.md
         - docs/run/schedule.md
         - docs/run/pipe.md
         - docs/run/max-rate.md
