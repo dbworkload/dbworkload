@@ -39,6 +39,8 @@ logger = logging.getLogger("dbworkload")
 
 @dataclass
 class RunState:
+    """Shared state for all worker threads in this single Python process."""
+
     stats: Stats
     lock: Lock
     stop_event: Event
@@ -52,6 +54,10 @@ class RunState:
         tds = worker_stats.get_tdigest_ndarray()
         if not tds:
             return
+
+        # Stats is shared by every worker thread. On free-threaded Python the GIL
+        # does not serialize bytecode execution, so updates to the shared Stats
+        # object and its counters must be protected explicitly.
         with self.lock:
             self.stats.add_tds(tds)
             self.stats_received += 1
@@ -70,7 +76,25 @@ class RunState:
     def set_error(self, error: BaseException) -> None:
         with self.lock:
             self.worker_error = error
+
+        # One worker failure stops the whole run. Event is used because it is a
+        # thread-safe latch: one thread calls set(), all other threads can poll
+        # is_set() cheaply without sharing a raw bool.
         self.stop_event.set()
+
+
+@dataclass
+class WorkerHandle:
+    """Bookkeeping for one OS thread running a workload worker."""
+
+    id: int
+    thread: Thread
+
+    # This is a per-worker shutdown signal. The global RunState.stop_event stops
+    # the entire run; this event lets schedule scaling stop only selected
+    # workers when a later schedule row lowers the target concurrency.
+    stop_event: Event
+    stopping: bool = False
 
 
 def require_gil_disabled() -> None:
@@ -114,11 +138,6 @@ def run(
         logger.error("--runtime gil-free does not support --max-rate yet.")
         sys.exit(1)
 
-    # TODO: implement multi-step schedules for the GIL-free runtime.
-    if schedule:
-        logger.error("--runtime gil-free does not support --schedule yet.")
-        sys.exit(1)
-
     # TODO: implement dbworkload.pipe dynamic resizing for the GIL-free runtime.
 
     logger.setLevel(log_level)
@@ -143,7 +162,12 @@ def run(
         stop_event=Event(),
     )
     prom = Prom(prom_port, state.stats, histogram_bins)
-    workers: list[Thread] = []
+
+    # workers holds Thread objects plus their per-worker stop Events. The list
+    # itself is shared by the main scheduler loop and the adjustment thread, so
+    # list mutation is protected by workers_lock.
+    workers: list[WorkerHandle] = []
+    workers_lock = Lock()
     hard_stop = False
 
     def signal_handler(sig, frame):
@@ -153,6 +177,9 @@ def run(
             logger.warning("Forcibly quitting.")
             sys.exit(1)
         hard_stop = True
+
+        # Ctrl+C is a global stop. Workers will notice this Event at their next
+        # polling point and flush their local WorkerStats before returning.
         state.stop_event.set()
 
     def write_csv(report: list, centroids, endtime: int) -> None:
@@ -167,6 +194,9 @@ def run(
                 f.write("\n")
 
     def publish_window(endtime: int) -> None:
+        # Reporting takes a consistent snapshot of the shared Stats object, then
+        # resets the current window while workers are briefly blocked from
+        # adding new measurements.
         with state.lock:
             active_connections = state.active_connections
             stats_received = state.stats_received
@@ -195,8 +225,21 @@ def run(
         logger.debug("Gracefully shutting down GIL-free runtime...")
         state.stop_event.set()
 
-        for worker_thread in workers:
-            worker_thread.join()
+        # If a schedule ramp is still adding/removing workers, wait for it before
+        # joining the actual worker threads.
+        if adjustment_thread and adjustment_thread.is_alive():
+            adjustment_thread.join()
+
+        with workers_lock:
+            worker_handles = list(workers)
+
+        for worker_handle in worker_handles:
+            worker_handle.stop_event.set()
+
+        # Thread.join() replaces the old multiprocessing queue drain. Every
+        # worker's finally block flushes its WorkerStats before the join returns.
+        for worker_handle in worker_handles:
+            worker_handle.thread.join()
 
         end_time = int(time.time())
         final_connections = max(state.peak_connections, concurrency)
@@ -292,15 +335,24 @@ def run(
                 f"{iterations % concurrency} iterations will not be executed."
             )
 
-    ramp_interval = ramp / concurrency if ramp and concurrency else 0
     offset = start_time % FREQUENCY
+    next_worker_id = 0
 
-    for worker_id in range(concurrency):
+    def start_worker(schedule_concurrency: int) -> None:
+        nonlocal next_worker_id
+        worker_id = next_worker_id
+        next_worker_id += 1
+
+        # Each worker gets its own Event so schedule changes can stop a subset
+        # of workers. A plain boolean would need a lock or busy coordination;
+        # Event gives us a small thread-safe signalling primitive.
+        worker_stop_event = Event()
         worker_thread = Thread(
             target=worker,
             daemon=True,
             args=(
                 state,
+                worker_stop_event,
                 log_level,
                 conn_info,
                 driver,
@@ -310,39 +362,135 @@ def run(
                 offset,
                 worker_id,
                 iterations_per_thread,
-                concurrency,
+                schedule_concurrency,
             ),
+            name=f"dbworkload-gil-free-{worker_id}",
         )
         worker_thread.start()
-        workers.append(worker_thread)
-        if ramp_interval:
-            time.sleep(ramp_interval)
+
+        with workers_lock:
+            workers.append(
+                WorkerHandle(
+                    id=worker_id,
+                    thread=worker_thread,
+                    stop_event=worker_stop_event,
+                )
+            )
+
+    def reap_workers() -> None:
+        # Remove finished threads from the bookkeeping list. This keeps later
+        # schedule adjustments from trying to stop already-completed workers.
+        with workers_lock:
+            workers[:] = [x for x in workers if x.thread.is_alive()]
+
+    def active_worker_handles() -> list[WorkerHandle]:
+        # Only workers that are alive and not already selected for shutdown are
+        # eligible for the next scale-down decision.
+        with workers_lock:
+            return [x for x in workers if x.thread.is_alive() and not x.stopping]
+
+    def adjust_workers(cc_change: int, ramp_time: int, schedule_concurrency: int):
+        # Schedule rows express target concurrency. This helper applies the
+        # difference from the previous target, optionally spacing changes across
+        # ramp_time seconds.
+        if cc_change == 0:
+            return
+
+        ramp_interval = ramp_time / abs(cc_change) if ramp_time else 0
+
+        if cc_change > 0:
+            for _ in range(cc_change):
+                if state.stop_event.is_set():
+                    return
+                start_worker(schedule_concurrency)
+                if ramp_interval:
+                    time.sleep(ramp_interval)
+
+        if cc_change < 0:
+            # Negative slicing selects the tail of the active worker list. There
+            # is no correctness requirement for which workers stop; we only need
+            # to stop the requested count.
+            for worker_handle in active_worker_handles()[cc_change:]:
+                if state.stop_event.is_set():
+                    return
+                worker_handle.stopping = True
+                worker_handle.stop_event.set()
+                if ramp_interval:
+                    time.sleep(ramp_interval)
 
     report_time = start_time + FREQUENCY + delay_stats
-    end_time = time.time() + duration if duration else float("inf")
+
+    # if no schedule was passed, create a schedule with just 1 line
+    if schedule is None:
+        schedule = [(concurrency, max_rate, ramp, duration)]
+
+    current_cc = 0
+    adjustment_thread: Thread | None = None
 
     try:
-        while time.time() < end_time and not state.stop_event.is_set():
-            with state.lock:
-                task_done_threads = state.task_done_threads
-                active_connections = state.active_connections
-                worker_error = state.worker_error
+        for i, s in enumerate(schedule):
+            cc, row_max_rate, ramp_time, dur = s
+            cc = int(cc or 0)
+            ramp_time = int(ramp_time or 0)
 
-            if worker_error:
+            # TODO: implement max-rate schedule rows for the GIL-free runtime.
+            if row_max_rate:
                 logger.error(
-                    f"error_type={worker_error.__class__.__name__}, {worker_error=}"
+                    "--runtime gil-free does not support schedule max_rate yet."
                 )
+                sys.exit(1)
+
+            if dur and ramp_time > dur:
+                ramp_time = dur
+
+            logger.info(
+                f"Starting schedule {i + 1}/{len(schedule)}: "
+                f"{cc=}, max_rate={row_max_rate}, {ramp_time=}, {dur=}"
+            )
+
+            if adjustment_thread and adjustment_thread.is_alive():
+                adjustment_thread.join()
+
+            # Worker scaling runs in a helper thread so a long ramp does not
+            # block the reporting loop for the schedule row.
+            adjustment_thread = Thread(
+                target=adjust_workers,
+                daemon=True,
+                args=(cc - current_cc, ramp_time, cc),
+            )
+            adjustment_thread.start()
+            current_cc = cc
+
+            end_schedule_time = time.time() + dur if dur else float("inf")
+
+            while time.time() < end_schedule_time and not state.stop_event.is_set():
+                reap_workers()
+
+                # The main loop only inspects shared counters under the lock.
+                # The actual worker execution remains outside this lock.
+                with state.lock:
+                    task_done_threads = state.task_done_threads
+                    worker_error = state.worker_error
+
+                if worker_error:
+                    logger.error(
+                        f"error_type={worker_error.__class__.__name__}, "
+                        f"{worker_error=}"
+                    )
+                    break
+
+                if task_done_threads > 0 and task_done_threads >= next_worker_id:
+                    logger.info("Requested iteration limit reached")
+                    break
+
+                if time.time() >= report_time:
+                    publish_window(int(time.time() - delay_stats))
+                    report_time += FREQUENCY
+
+                time.sleep(0.001)
+
+            if state.worker_error or state.stop_event.is_set():
                 break
-
-            if task_done_threads > 0 and task_done_threads >= len(workers):
-                logger.info("Requested iteration limit reached")
-                break
-
-            if time.time() >= report_time:
-                publish_window(int(time.time() - delay_stats))
-                report_time += FREQUENCY
-
-            time.sleep(0.001)
     finally:
         graceful_shutdown()
 
@@ -352,6 +500,7 @@ def run(
 
 def worker(
     state: RunState,
+    worker_stop_event: Event,
     log_level: str,
     conn_info: ConnInfo,
     driver: str,
@@ -381,7 +530,9 @@ def worker(
     state.mark_started()
 
     try:
-        while not state.stop_event.is_set():
+        # Workers exit when either the whole run is stopping or this specific
+        # worker was selected for scale-down by a schedule row.
+        while not state.stop_event.is_set() and not worker_stop_event.is_set():
             if conn_duration:
                 conn_endtime = time.time() + int(
                     conn_duration * random.uniform(0.8, 1.2)
@@ -405,7 +556,14 @@ def worker(
                     ts = int(time.time())
                     stat_time = ts + FREQUENCY - ts % FREQUENCY + offset
 
-                    while not state.stop_event.is_set():
+                    # The inner loop is the hot workload path. It checks stop
+                    # Events at natural boundaries so shutdown is cooperative:
+                    # the thread finishes the current transaction/cycle, flushes
+                    # local stats, and returns.
+                    while (
+                        not state.stop_event.is_set()
+                        and not worker_stop_event.is_set()
+                    ):
                         if iterations and c >= iterations:
                             logger.debug("Task completed!")
                             state.add_stats(ws)
@@ -421,7 +579,7 @@ def worker(
 
                         cycle_start = time.time()
                         for txn in w.loop():
-                            if state.stop_event.is_set():
+                            if state.stop_event.is_set() or worker_stop_event.is_set():
                                 break
 
                             start = time.time()
@@ -446,13 +604,19 @@ def worker(
                         )
 
                         if time.time() >= stat_time:
+                            # WorkerStats is thread-local, so measurement writes
+                            # do not need a lock. Only the handoff into shared
+                            # RunState.stats is locked inside add_stats().
                             state.add_stats(ws)
                             ws.new_window()
                             stat_time += FREQUENCY
 
             except Exception as e:
                 if is_retryable_driver_error(driver, e):
-                    if not state.stop_event.is_set():
+                    if (
+                        not state.stop_event.is_set()
+                        and not worker_stop_event.is_set()
+                    ):
                         log_and_sleep(e)
                     continue
 
@@ -460,6 +624,9 @@ def worker(
                 return
     finally:
         if not stopped:
+            # Always flush the current thread-local stats window. This is the
+            # equivalent of the old queue-drain step, but without multiprocessing
+            # queues.
             state.add_stats(ws)
             state.mark_stopped()
 

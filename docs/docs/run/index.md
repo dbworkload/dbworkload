@@ -12,5 +12,5 @@ Here is the list of functions and options you can use for running your workload.
 !!! warning "Experimental"
 
     The `--runtime gil-free` implementation is experimental. It is intended for
-    Python free-threaded builds and currently does not support `--schedule`,
-    `--max-rate`, or live connection changes through `dbworkload.pipe`.
+    Python free-threaded builds and currently does not support `--max-rate` or
+    live connection changes through `dbworkload.pipe`.

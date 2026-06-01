@@ -36,12 +36,13 @@ The runtime is useful when testing Python free-threaded builds such as
 
 ## Current Limitations
 
-The GIL-free runtime currently supports fixed-concurrency runs only.
+The GIL-free runtime supports fixed-concurrency runs and schedule rows that set
+connection count, ramp time, and duration.
 
 These features are not implemented yet:
 
-- `--schedule`
 - `--max-rate`
+- schedule rows that use `max_rate`
 - live connection changes through `dbworkload.pipe`
 
 If you need those features, use the default runtime:
@@ -49,6 +50,20 @@ If you need those features, use the default runtime:
 ```bash
 dbworkload run --runtime multiprocessing ...
 ```
+
+## Schedule Support
+
+The GIL-free runtime supports schedule rows like:
+
+```text
+connections,max_rate,ramp,duration
+2,,0,1
+8,,2,5
+1,,0,1
+```
+
+The `max_rate` column must be empty or zero. Rows that request a max rate are
+rejected because max-rate control is not implemented yet for this runtime.
 
 ## Checking the GIL
 
