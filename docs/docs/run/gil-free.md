@@ -36,13 +36,11 @@ The runtime is useful when testing Python free-threaded builds such as
 
 ## Current Limitations
 
-The GIL-free runtime supports fixed-concurrency runs and schedule rows that set
-connection count, ramp time, and duration.
+The GIL-free runtime supports fixed-concurrency runs, `--max-rate`, and schedule
+rows that set connection count, max rate, ramp time, and duration.
 
-These features are not implemented yet:
+This feature is not implemented yet:
 
-- `--max-rate`
-- schedule rows that use `max_rate`
 - live connection changes through `dbworkload.pipe`
 
 If you need those features, use the default runtime:
@@ -62,8 +60,18 @@ connections,max_rate,ramp,duration
 1,,0,1
 ```
 
-The `max_rate` column must be empty or zero. Rows that request a max rate are
-rejected because max-rate control is not implemented yet for this runtime.
+It also supports rows that use `max_rate`:
+
+```text
+connections,max_rate,ramp,duration
+,3000,0,5
+4,3000,1,5
+```
+
+When `max_rate` is set and `connections` is empty or zero, dbworkload starts with
+one worker, measures `__cycle__` throughput, and extrapolates how many workers
+are needed. If the workload overshoots the target, each worker adds a small
+per-cycle pause to float around the requested rate.
 
 ## Checking the GIL
 

@@ -8,6 +8,7 @@ duration, optional iterations, periodic stats, and graceful Ctrl+C shutdown.
 """
 
 import logging
+import math
 import random
 import signal
 import sys
@@ -48,6 +49,7 @@ class RunState:
     peak_connections: int = 0
     task_done_threads: int = 0
     stats_received: int = 0
+    cycle_pause: float = 0
     worker_error: BaseException | None = None
 
     def add_stats(self, worker_stats: WorkerStats) -> None:
@@ -81,6 +83,16 @@ class RunState:
         # thread-safe latch: one thread calls set(), all other threads can poll
         # is_set() cheaply without sharing a raw bool.
         self.stop_event.set()
+
+    def set_cycle_pause(self, pause: float) -> None:
+        # max-rate control writes this value from the reporting thread. Workers
+        # read it once per cycle and sleep outside the lock.
+        with self.lock:
+            self.cycle_pause = max(0, pause)
+
+    def get_cycle_pause(self) -> float:
+        with self.lock:
+            return self.cycle_pause
 
 
 @dataclass
@@ -132,11 +144,6 @@ def run(
     """Run a workload with the experimental GIL-free threaded runtime."""
 
     require_gil_disabled()
-
-    # TODO: implement max-rate concurrency adjustments for the GIL-free runtime.
-    if max_rate:
-        logger.error("--runtime gil-free does not support --max-rate yet.")
-        sys.exit(1)
 
     # TODO: implement dbworkload.pipe dynamic resizing for the GIL-free runtime.
 
@@ -193,7 +200,7 @@ def run(
                 np.savetxt(f, next(centroids), newline=";")
                 f.write("\n")
 
-    def publish_window(endtime: int) -> None:
+    def publish_window(endtime: int) -> list:
         # Reporting takes a consistent snapshot of the shared Stats object, then
         # resets the current window while workers are briefly blocked from
         # adding new measurements.
@@ -220,6 +227,7 @@ def run(
             print_stats(report)
 
         prom.publish(report)
+        return report
 
     def graceful_shutdown() -> None:
         logger.debug("Gracefully shutting down GIL-free runtime...")
@@ -389,6 +397,9 @@ def run(
         with workers_lock:
             return [x for x in workers if x.thread.is_alive() and not x.stopping]
 
+    def active_worker_count() -> int:
+        return len(active_worker_handles())
+
     def adjust_workers(cc_change: int, ramp_time: int, schedule_concurrency: int):
         # Schedule rows express target concurrency. This helper applies the
         # difference from the previous target, optionally spacing changes across
@@ -418,6 +429,71 @@ def run(
                 if ramp_interval:
                     time.sleep(ramp_interval)
 
+    def request_worker_target(target_cc: int, ramp_time: int) -> None:
+        nonlocal adjustment_thread, current_cc
+        target_cc = max(0, target_cc)
+        cc_change = target_cc - current_cc
+        if cc_change == 0:
+            return
+
+        if adjustment_thread and adjustment_thread.is_alive():
+            logger.debug("Skipping worker adjustment; previous adjustment is active.")
+            return
+
+        adjustment_thread = Thread(
+            target=adjust_workers,
+            daemon=True,
+            args=(cc_change, ramp_time, target_cc),
+        )
+        adjustment_thread.start()
+        current_cc = target_cc
+
+    def get_cycle_rate(report: list) -> int:
+        for row in report:
+            if row[1] == "__cycle__":
+                return row[6]
+        return 0
+
+    def apply_max_rate_control(target_rate: int, report: list, ramp_time: int) -> None:
+        nonlocal current_cc
+
+        current_rate = get_cycle_rate(report)
+        active_cc = max(1, active_worker_count())
+
+        if current_rate <= 0:
+            state.set_cycle_pause(0)
+            request_worker_target(max(1, current_cc + 1), ramp_time)
+            return
+
+        per_worker_rate = current_rate / active_cc
+        target_cc = max(1, math.ceil(target_rate / per_worker_rate))
+
+        if target_cc != current_cc:
+            previous_cc = current_cc
+            state.set_cycle_pause(0)
+            request_worker_target(target_cc, ramp_time)
+            logger.warning(
+                "Calculating max_rate: desired max_rate: %s, current_rate: %s, "
+                "current_cc: %s, target_cc: %s, difference: %s",
+                target_rate,
+                current_rate,
+                previous_cc,
+                target_cc,
+                target_cc - previous_cc,
+            )
+            return
+
+        if current_rate > target_rate:
+            # Convert measured throughput into an average cycle interval. The
+            # extra interval is the per-cycle sleep each worker should add to
+            # float around the requested max rate.
+            current_interval = active_cc / current_rate
+            target_interval = active_cc / target_rate
+            pause = max(0, target_interval - current_interval)
+            state.set_cycle_pause(pause)
+        else:
+            state.set_cycle_pause(0)
+
     report_time = start_time + FREQUENCY + delay_stats
 
     # if no schedule was passed, create a schedule with just 1 line
@@ -431,14 +507,8 @@ def run(
         for i, s in enumerate(schedule):
             cc, row_max_rate, ramp_time, dur = s
             cc = int(cc or 0)
+            row_max_rate = int(row_max_rate or 0)
             ramp_time = int(ramp_time or 0)
-
-            # TODO: implement max-rate schedule rows for the GIL-free runtime.
-            if row_max_rate:
-                logger.error(
-                    "--runtime gil-free does not support schedule max_rate yet."
-                )
-                sys.exit(1)
 
             if dur and ramp_time > dur:
                 ramp_time = dur
@@ -451,15 +521,13 @@ def run(
             if adjustment_thread and adjustment_thread.is_alive():
                 adjustment_thread.join()
 
-            # Worker scaling runs in a helper thread so a long ramp does not
-            # block the reporting loop for the schedule row.
-            adjustment_thread = Thread(
-                target=adjust_workers,
-                daemon=True,
-                args=(cc - current_cc, ramp_time, cc),
-            )
-            adjustment_thread.start()
-            current_cc = cc
+            # A max-rate row starts with either the requested connection count
+            # or one worker. The reporting loop will extrapolate the target
+            # connection count once it has a measured __cycle__ rate.
+            if row_max_rate and cc == 0:
+                request_worker_target(1, ramp_time)
+            else:
+                request_worker_target(cc, ramp_time)
 
             end_schedule_time = time.time() + dur if dur else float("inf")
 
@@ -484,7 +552,9 @@ def run(
                     break
 
                 if time.time() >= report_time:
-                    publish_window(int(time.time() - delay_stats))
+                    report = publish_window(int(time.time() - delay_stats))
+                    if row_max_rate and report:
+                        apply_max_rate_control(row_max_rate, report, ramp_time)
                     report_time += FREQUENCY
 
                 time.sleep(0.001)
@@ -610,6 +680,16 @@ def worker(
                             state.add_stats(ws)
                             ws.new_window()
                             stat_time += FREQUENCY
+
+                        cycle_pause = state.get_cycle_pause()
+                        if cycle_pause:
+                            sleep_until = time.time() + cycle_pause
+                            while (
+                                time.time() < sleep_until
+                                and not state.stop_event.is_set()
+                                and not worker_stop_event.is_set()
+                            ):
+                                time.sleep(min(0.05, sleep_until - time.time()))
 
             except Exception as e:
                 if is_retryable_driver_error(driver, e):
