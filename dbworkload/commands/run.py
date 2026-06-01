@@ -2,6 +2,7 @@
 
 import errno
 import logging
+import math
 import multiprocessing as mp
 import os
 import queue
@@ -11,6 +12,7 @@ import sys
 import time
 import traceback
 from contextlib import contextmanager
+from dataclasses import dataclass
 from threading import Thread
 
 import numpy as np
@@ -37,6 +39,13 @@ STATS_BUFFER = 8
 DBWORKLOAD_PIPE = "dbworkload.pipe"
 
 logger = logging.getLogger("dbworkload")
+
+MAX_RATE_LOWER_BAND = 0.90
+MAX_RATE_UPPER_BAND = 1.10
+MAX_RATE_MASSIVE_OVERSHOOT = 2.0
+MAX_RATE_ADJUSTMENT_COOLDOWN = 60
+MAX_RATE_MAX_CYCLE_PAUSE = 1.0
+MAX_RATE_EWMA_ALPHA = 0.40
 
 sigterm_received = False
 
@@ -87,6 +96,34 @@ FINAL_HEADERS: list = [
     "p99(ms)",
     "max(ms)",
 ]
+
+
+@dataclass
+class MaxRateControllerState:
+    """State for the max-rate controller used by the multiprocessing runtime.
+
+    max-rate uses two controls with different blast radii:
+
+    1. Worker count is coarse control. It is useful when measured __cycle__
+       throughput is below the target and more connections are needed.
+    2. Per-cycle pause is fine control. It is preferred when throughput is above
+       the target because removing workers can undershoot, then force the next
+       reporting window to add workers back.
+
+    Worker-count changes are protected by a cooldown. The effective cooldown is
+    MAX_RATE_ADJUSTMENT_COOLDOWN + ramp_time because ramped changes create
+    stats windows that are a blend of old and new concurrency, not steady state.
+    """
+
+    smoothed_rate: float = 0
+    next_worker_adjustment_time: float = 0
+
+    def reset(self) -> None:
+        # Schedule rows are independent control periods: target rate, requested
+        # connections, ramp, and duration may all change. Reset smoothing so the
+        # new row does not inherit stale measurements from the previous row.
+        self.smoothed_rate = 0
+        self.next_worker_adjustment_time = 0
 
 
 def signal_handler(sig, frame):
@@ -338,6 +375,7 @@ def run(
     prom = Prom(prom_port, stats, histogram_bins)
 
     to_main_q = mp.Queue()
+    cycle_pause = mp.Value("d", 0.0)
 
     global queues
     global supervisors
@@ -374,6 +412,7 @@ def run(
                 conn_duration,
                 offset,
                 x,
+                cycle_pause,
             ),
             daemon=True,
         )
@@ -394,7 +433,171 @@ def run(
     current_proc = -1
     current_cc = 0
     thread_id = 0
-    pause_for_ramp_time = 0
+    worker_adjustment_thread = None
+    max_rate_state = MaxRateControllerState()
+
+    def set_cycle_pause(pause: float) -> None:
+        # Workers run in supervisor processes, so the pause must be process
+        # shared. multiprocessing.Value gives us a tiny synchronized cell that
+        # every worker can read after finishing one workload cycle.
+        with cycle_pause.get_lock():
+            cycle_pause.value = max(0, pause)
+
+    def get_cycle_pause() -> float:
+        with cycle_pause.get_lock():
+            return cycle_pause.value
+
+    def request_worker_target(target_cc: int, ramp_time: int) -> bool:
+        nonlocal current_cc, worker_adjustment_thread
+
+        target_cc = max(0, target_cc)
+        cc_change = target_cc - current_cc
+        if cc_change == 0:
+            return False
+
+        if worker_adjustment_thread and worker_adjustment_thread.is_alive():
+            logger.debug("Skipping worker adjustment; previous adjustment is active.")
+            return False
+
+        worker_adjustment_thread = Thread(
+            target=launch_or_kill_workers,
+            daemon=True,
+            args=(
+                queues,
+                ramp_time,
+                cc_change,
+                procs,
+                iterations_per_thread,
+                concurrency,
+            ),
+        )
+        worker_adjustment_thread.start()
+        current_cc = target_cc
+        return True
+
+    def cooldown_expired() -> bool:
+        return time.time() >= max_rate_state.next_worker_adjustment_time
+
+    def record_worker_adjustment(ramp_time: int) -> None:
+        # Worker changes distort stats while connections are starting/stopping.
+        # The fixed cooldown gives the database/client time to settle, and
+        # ramp_time covers the period where the requested change is still being
+        # applied. Per-cycle pause remains adjustable during this period because
+        # it is reversible and does not change connection count.
+        max_rate_state.next_worker_adjustment_time = (
+            time.time() + MAX_RATE_ADJUSTMENT_COOLDOWN + ramp_time
+        )
+
+    def get_cycle_rate(report: list) -> int:
+        for row in report:
+            if row[1] == "__cycle__":
+                return row[6]
+        return 0
+
+    def apply_max_rate_control(target_rate: int, report: list, ramp_time: int) -> None:
+        """Adjust worker count and/or per-cycle pause toward target_rate.
+
+        The old implementation directly extrapolated a new worker count every
+        reporting window. That can flap: adding workers overshoots, removing
+        workers undershoots, and the next window reverses course. This
+        controller uses a dead band around the target, prefers pause for normal
+        overshoot, and changes worker count only after cooldown + ramp_time.
+        """
+        current_rate = get_cycle_rate(report)
+        active_cc = max(1, current_cc)
+
+        if current_rate > 0:
+            if max_rate_state.smoothed_rate:
+                max_rate_state.smoothed_rate = (
+                    MAX_RATE_EWMA_ALPHA * current_rate
+                    + (1 - MAX_RATE_EWMA_ALPHA) * max_rate_state.smoothed_rate
+                )
+            else:
+                max_rate_state.smoothed_rate = current_rate
+
+        control_rate = max_rate_state.smoothed_rate or current_rate
+
+        if current_rate <= 0:
+            set_cycle_pause(0)
+            if cooldown_expired():
+                if request_worker_target(max(1, current_cc + 1), ramp_time):
+                    record_worker_adjustment(ramp_time)
+            return
+
+        lower_bound = target_rate * MAX_RATE_LOWER_BAND
+        upper_bound = target_rate * MAX_RATE_UPPER_BAND
+
+        if lower_bound <= control_rate <= upper_bound:
+            set_cycle_pause(get_cycle_pause() * 0.5)
+            return
+
+        per_worker_rate = control_rate / active_cc
+
+        if control_rate < lower_bound:
+            set_cycle_pause(0)
+            if not cooldown_expired():
+                return
+
+            target_cc = max(current_cc + 1, math.ceil(target_rate / per_worker_rate))
+            previous_cc = current_cc
+            if not request_worker_target(target_cc, ramp_time):
+                return
+
+            record_worker_adjustment(ramp_time)
+            logger.warning(
+                "Increasing workers for max_rate: desired max_rate: %s, "
+                "current_rate: %s, smoothed_rate: %.2f, current_cc: %s, "
+                "target_cc: %s, cooldown_until: %.2f",
+                target_rate,
+                current_rate,
+                control_rate,
+                previous_cc,
+                target_cc,
+                max_rate_state.next_worker_adjustment_time,
+            )
+            return
+
+        # Overshoot is first translated into a per-cycle sleep. With the same
+        # worker count, target_interval - current_interval is the extra time
+        # each worker should add after a completed __cycle__ to float near the
+        # requested aggregate rate.
+        current_interval = active_cc / control_rate
+        target_interval = active_cc / target_rate
+        pause = max(0, target_interval - current_interval)
+
+        massive_overshoot = control_rate >= target_rate * MAX_RATE_MASSIVE_OVERSHOOT
+        pause_too_large = pause > MAX_RATE_MAX_CYCLE_PAUSE
+
+        if not massive_overshoot and not pause_too_large:
+            set_cycle_pause(pause)
+            return
+
+        set_cycle_pause(min(pause, MAX_RATE_MAX_CYCLE_PAUSE))
+
+        if not cooldown_expired() or current_cc <= 1:
+            return
+
+        target_cc = max(1, math.floor(target_rate / per_worker_rate))
+        if target_cc >= current_cc:
+            return
+
+        previous_cc = current_cc
+        if not request_worker_target(target_cc, ramp_time):
+            return
+
+        record_worker_adjustment(ramp_time)
+        logger.warning(
+            "Reducing workers for max_rate: desired max_rate: %s, "
+            "current_rate: %s, smoothed_rate: %.2f, current_cc: %s, "
+            "target_cc: %s, pause: %.6f, cooldown_until: %.2f",
+            target_rate,
+            current_rate,
+            control_rate,
+            previous_cc,
+            target_cc,
+            pause,
+            max_rate_state.next_worker_adjustment_time,
+        )
 
     iterations_per_thread = None
     if iterations:
@@ -415,6 +618,10 @@ def run(
     # loop through all lines in the schedule
     for i, s in enumerate(schedule):
         cc, max_rate, ramp_time, dur = s
+        cc = int(cc or 0)
+        max_rate = int(max_rate or 0)
+        ramp_time = int(ramp_time or 0)
+        dur = int(dur or 0)
 
         # sanitize
         if dur and ramp_time > dur:
@@ -428,43 +635,27 @@ def run(
         # in which case it defaults to infinite
         end_schedule_time = time.time() + dur if dur else float("inf")
 
-        # if max_rate was set instead of concurrency
-        # and current_cc = 0,
-        # start the workload with 1 thread so that dbworkload
-        # has stats to measure on for adding/removing threads
-        # as part of the calculations for maintaining
-        # the desired max_rate
-        if current_cc == 0 and max_rate:
-            Thread(
-                target=launch_or_kill_workers,
-                daemon=True,
-                args=(
-                    queues,
-                    ramp_time,
-                    1,
-                    procs,
-                    iterations_per_thread,
-                    concurrency,
-                ),
-            ).start()
+        if worker_adjustment_thread and worker_adjustment_thread.is_alive():
+            worker_adjustment_thread.join()
 
-            current_cc = 1
+        set_cycle_pause(0)
+        max_rate_state.reset()
 
-        if not max_rate:
-            Thread(
-                target=launch_or_kill_workers,
-                daemon=True,
-                args=(
-                    queues,
-                    ramp_time,
-                    cc - current_cc,
-                    procs,
-                    iterations_per_thread,
-                    concurrency,
-                ),
-            ).start()
+        # If max_rate is provided without an explicit connection count, start
+        # with one probe worker. Once dbworkload has a measured __cycle__ rate,
+        # the controller can extrapolate how many workers are needed.
+        if max_rate and cc == 0:
+            worker_adjusted = request_worker_target(1, ramp_time)
+        else:
+            worker_adjusted = request_worker_target(cc, ramp_time)
 
-            current_cc = cc
+        # When a max-rate row also provides an explicit connection count, the
+        # initial ramp to that count should be treated as a worker adjustment.
+        # This prevents the controller from reacting to ramp-skewed stats with
+        # another add/remove decision. Target-only rows such as ",3000,0,60" do
+        # not wait here because the initial single worker is only a probe.
+        if max_rate and cc > 0 and worker_adjusted:
+            record_worker_adjustment(ramp_time)
 
         task_done_threads = 0
 
@@ -513,54 +704,8 @@ def run(
 
                 report = stats.calculate_stats(active_connections, endtime)
 
-                # if max_rate is specified, try to stick to it.
-                # to calculate how to get to the max rate, we need a non-empty report
                 if max_rate and report:
-                    current_rate = report[0][6]  # __cycle__ period_ops/s
-
-                    # approximate how many threads are needed to get
-                    # to the desired max_rate given the current QPS rate
-                    # and current threads count
-                    extrapolated_cc = int(max_rate / (current_rate / current_cc))
-
-                    # adjust the thread count if there is a difference
-                    # between the current thread count and the calculated
-                    # thread count, but not if there is one such operation already
-                    # running, that is, not if there's an operation that is slow due
-                    # to a long ramp_time.
-                    if (
-                        extrapolated_cc - current_cc
-                        and time.time() >= pause_for_ramp_time
-                    ):
-                        Thread(
-                            target=launch_or_kill_workers,
-                            daemon=True,
-                            args=(
-                                queues,
-                                ramp_time,
-                                extrapolated_cc - current_cc,
-                                procs,
-                                iterations_per_thread,
-                                concurrency,
-                            ),
-                        ).start()
-
-                        # make sure we will not add/remove threads while the newly
-                        # created thread is still working
-                        pause_for_ramp_time = time.time() + ramp_time + 2 * FREQUENCY
-
-                        logger.warning(
-                            f"Calculating max_rate: desired max_rate: {max_rate}, "
-                            f"current_rate: {report[0][6]}, current_cc = {current_cc}, "
-                            f"extrapolated_cc = {extrapolated_cc}, "
-                            f"difference: {extrapolated_cc-current_cc}"
-                        )
-                        current_cc = extrapolated_cc
-
-                        # ramp_time is only considered for reaching the desired max_rate.
-                        # For adjustments over time, we want the changes to happen immediately
-                        # and not smoothed out over the initial ramp_time value
-                        ramp_time = 0
+                    apply_max_rate_control(max_rate, report, ramp_time)
 
                 centroids = stats.get_centroids()
 
@@ -608,6 +753,7 @@ def supervisor(
     conn_duration: int,
     offset: int,
     id: int,
+    cycle_pause,
 ):
     logger.setLevel(log_level)
     logger.debug(f"Supervisor-{id} started")
@@ -654,6 +800,7 @@ def supervisor(
                     args,
                     conn_duration,
                     offset,
+                    cycle_pause,
                     *msg,
                 ),
             )
@@ -671,6 +818,7 @@ def worker(
     args: dict,
     conn_duration: int,
     offset: int,
+    cycle_pause,
     id: int = 0,
     iterations: int = 0,
     concurrency: int = 0,
@@ -801,6 +949,28 @@ def worker(
                         to_main_q.put(ws.get_tdigest_ndarray(), block=False)
                         ws.new_window()
                         stat_time += FREQUENCY
+
+                    # max-rate fine control is published by the main process in
+                    # a multiprocessing.Value so all supervisor processes see
+                    # the same value. Each worker reads it once per completed
+                    # workload cycle and sleeps outside the hot transaction
+                    # loop. This keeps throttling cooperative and makes
+                    # shutdown responsive to poison-pill messages.
+                    with cycle_pause.get_lock():
+                        pause = cycle_pause.value
+
+                    if pause:
+                        sleep_until = time.time() + pause
+                        while time.time() < sleep_until:
+                            try:
+                                from_proc_q.get(block=False)
+                                logger.debug("Poison pill received, terminating...")
+                                gracefully_return("got_killed")
+                                return
+                            except queue.Empty:
+                                pass
+
+                            time.sleep(min(0.05, sleep_until - time.time()))
 
         except Exception as e:
             if driver == "postgres":
