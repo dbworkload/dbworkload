@@ -37,6 +37,13 @@ from dbworkload.utils.common import Prom, Stats, WorkerStats, import_class_at_ru
 
 logger = logging.getLogger("dbworkload")
 
+MAX_RATE_LOWER_BAND = 0.90
+MAX_RATE_UPPER_BAND = 1.10
+MAX_RATE_MASSIVE_OVERSHOOT = 2.0
+MAX_RATE_ADJUSTMENT_COOLDOWN = 60
+MAX_RATE_MAX_CYCLE_PAUSE = 1.0
+MAX_RATE_EWMA_ALPHA = 0.40
+
 
 @dataclass
 class RunState:
@@ -109,6 +116,37 @@ class WorkerHandle:
     stopping: bool = False
 
 
+@dataclass
+class MaxRateControllerState:
+    """State for the GIL-free max-rate controller.
+
+    max-rate is intentionally split into two controls:
+
+    1. Worker count is coarse control. It is useful when the workload is far
+       below the requested rate and more concurrency is needed.
+    2. Per-cycle pause is fine control. It is preferred when the workload is
+       above the requested rate, because reducing workers can undershoot and then
+       force the controller into an add/remove oscillation.
+
+    The cooldown applies only to worker-count changes. The pause can be adjusted
+    every reporting window because it is cheap, reversible, and does not distort
+    the next stats window as much as adding/removing workers. When a worker-count
+    change uses ramp_time, the cooldown is extended by that ramp time because the
+    stats gathered during ramp-up/ramp-down are not steady-state measurements.
+    """
+
+    smoothed_rate: float = 0
+    next_worker_adjustment_time: float = 0
+
+    def reset(self) -> None:
+        # A schedule row is a new control problem: the target rate, target
+        # connections, and ramp may all change. Carrying a previous smoothed
+        # rate into the new row would make the first decisions depend on stale
+        # measurements from a different target.
+        self.smoothed_rate = 0
+        self.next_worker_adjustment_time = 0
+
+
 def require_gil_disabled() -> None:
     is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
 
@@ -175,6 +213,7 @@ def run(
     # list mutation is protected by workers_lock.
     workers: list[WorkerHandle] = []
     workers_lock = Lock()
+    max_rate_state = MaxRateControllerState()
     hard_stop = False
 
     def signal_handler(sig, frame):
@@ -429,16 +468,16 @@ def run(
                 if ramp_interval:
                     time.sleep(ramp_interval)
 
-    def request_worker_target(target_cc: int, ramp_time: int) -> None:
+    def request_worker_target(target_cc: int, ramp_time: int) -> bool:
         nonlocal adjustment_thread, current_cc
         target_cc = max(0, target_cc)
         cc_change = target_cc - current_cc
         if cc_change == 0:
-            return
+            return False
 
         if adjustment_thread and adjustment_thread.is_alive():
             logger.debug("Skipping worker adjustment; previous adjustment is active.")
-            return
+            return False
 
         adjustment_thread = Thread(
             target=adjust_workers,
@@ -447,6 +486,24 @@ def run(
         )
         adjustment_thread.start()
         current_cc = target_cc
+        return True
+
+    def cooldown_expired() -> bool:
+        return time.time() >= max_rate_state.next_worker_adjustment_time
+
+    def record_worker_adjustment(ramp_time: int) -> None:
+        # Worker changes distort the next stats windows in two ways:
+        #
+        # 1. A fixed settling period gives the database/client time to absorb
+        #    the new connection count.
+        # 2. ramp_time explicitly spreads the change over time, so measurements
+        #    taken during that ramp are a blend of old and new concurrency.
+        #
+        # The controller therefore waits for both periods before changing the
+        # worker count again. Per-cycle pause is still allowed during cooldown.
+        max_rate_state.next_worker_adjustment_time = (
+            time.time() + MAX_RATE_ADJUSTMENT_COOLDOWN + ramp_time
+        )
 
     def get_cycle_rate(report: list) -> int:
         for row in report:
@@ -455,44 +512,118 @@ def run(
         return 0
 
     def apply_max_rate_control(target_rate: int, report: list, ramp_time: int) -> None:
+        """Adjust workers and/or per-cycle pause to approach target_rate.
+
+        The controller avoids rapid add/remove oscillation with three rules:
+
+        * A dead band accepts rates close to the target. Between
+          MAX_RATE_LOWER_BAND and MAX_RATE_UPPER_BAND we keep the worker count
+          unchanged and only slowly reduce any existing pause.
+        * Overshoot is handled with pause first. Worker removal is reserved for
+          massive overshoot or cases where the required pause would be too large.
+        * Worker-count changes are rate-limited by a cooldown. The effective
+          cooldown is MAX_RATE_ADJUSTMENT_COOLDOWN + ramp_time, because ramped
+          changes skew the stats window until the ramp has completed.
+        """
         nonlocal current_cc
 
         current_rate = get_cycle_rate(report)
         active_cc = max(1, active_worker_count())
 
+        if current_rate > 0:
+            if max_rate_state.smoothed_rate:
+                max_rate_state.smoothed_rate = (
+                    MAX_RATE_EWMA_ALPHA * current_rate
+                    + (1 - MAX_RATE_EWMA_ALPHA) * max_rate_state.smoothed_rate
+                )
+            else:
+                max_rate_state.smoothed_rate = current_rate
+
+        control_rate = max_rate_state.smoothed_rate or current_rate
+
         if current_rate <= 0:
             state.set_cycle_pause(0)
-            request_worker_target(max(1, current_cc + 1), ramp_time)
+            if cooldown_expired():
+                if request_worker_target(max(1, current_cc + 1), ramp_time):
+                    record_worker_adjustment(ramp_time)
             return
 
-        per_worker_rate = current_rate / active_cc
-        target_cc = max(1, math.ceil(target_rate / per_worker_rate))
+        lower_bound = target_rate * MAX_RATE_LOWER_BAND
+        upper_bound = target_rate * MAX_RATE_UPPER_BAND
 
-        if target_cc != current_cc:
-            previous_cc = current_cc
+        # Inside the dead band, avoid worker-count changes. If we were applying
+        # a pause, decay it gently so the controller can recover when the target
+        # is raised or the workload naturally slows down.
+        if lower_bound <= control_rate <= upper_bound:
+            state.set_cycle_pause(state.get_cycle_pause() * 0.5)
+            return
+
+        per_worker_rate = control_rate / active_cc
+
+        if control_rate < lower_bound:
             state.set_cycle_pause(0)
-            request_worker_target(target_cc, ramp_time)
+            if not cooldown_expired():
+                return
+
+            target_cc = max(current_cc + 1, math.ceil(target_rate / per_worker_rate))
+            previous_cc = current_cc
+            if not request_worker_target(target_cc, ramp_time):
+                return
+
+            record_worker_adjustment(ramp_time)
             logger.warning(
-                "Calculating max_rate: desired max_rate: %s, current_rate: %s, "
-                "current_cc: %s, target_cc: %s, difference: %s",
+                "Increasing workers for max_rate: desired max_rate: %s, "
+                "current_rate: %s, smoothed_rate: %.2f, current_cc: %s, "
+                "target_cc: %s, cooldown_until: %.2f",
                 target_rate,
                 current_rate,
+                control_rate,
                 previous_cc,
                 target_cc,
-                target_cc - previous_cc,
+                max_rate_state.next_worker_adjustment_time,
             )
             return
 
-        if current_rate > target_rate:
-            # Convert measured throughput into an average cycle interval. The
-            # extra interval is the per-cycle sleep each worker should add to
-            # float around the requested max rate.
-            current_interval = active_cc / current_rate
-            target_interval = active_cc / target_rate
-            pause = max(0, target_interval - current_interval)
+        # Overshoot path. First calculate the sleep needed to bring the current
+        # worker count down to the target. This is the fine-control path and is
+        # preferred over removing workers.
+        current_interval = active_cc / control_rate
+        target_interval = active_cc / target_rate
+        pause = max(0, target_interval - current_interval)
+
+        massive_overshoot = control_rate >= target_rate * MAX_RATE_MASSIVE_OVERSHOOT
+        pause_too_large = pause > MAX_RATE_MAX_CYCLE_PAUSE
+
+        if not massive_overshoot and not pause_too_large:
             state.set_cycle_pause(pause)
-        else:
-            state.set_cycle_pause(0)
+            return
+
+        state.set_cycle_pause(min(pause, MAX_RATE_MAX_CYCLE_PAUSE))
+
+        if not cooldown_expired() or current_cc <= 1:
+            return
+
+        target_cc = max(1, math.floor(target_rate / per_worker_rate))
+        if target_cc >= current_cc:
+            return
+
+        previous_cc = current_cc
+        if not request_worker_target(target_cc, ramp_time):
+            return
+
+        record_worker_adjustment(ramp_time)
+        logger.warning(
+            "Reducing workers for max_rate: desired max_rate: %s, "
+            "current_rate: %s, smoothed_rate: %.2f, current_cc: %s, "
+            "target_cc: %s, pause: %.6f, cooldown_until: %.2f",
+            target_rate,
+            current_rate,
+            control_rate,
+            previous_cc,
+            target_cc,
+            pause,
+            max_rate_state.next_worker_adjustment_time,
+        )
 
     report_time = start_time + FREQUENCY + delay_stats
 
@@ -521,13 +652,29 @@ def run(
             if adjustment_thread and adjustment_thread.is_alive():
                 adjustment_thread.join()
 
+            state.set_cycle_pause(0)
+            max_rate_state.reset()
+
             # A max-rate row starts with either the requested connection count
             # or one worker. The reporting loop will extrapolate the target
             # connection count once it has a measured __cycle__ rate.
             if row_max_rate and cc == 0:
-                request_worker_target(1, ramp_time)
+                worker_adjusted = request_worker_target(1, ramp_time)
             else:
-                request_worker_target(cc, ramp_time)
+                worker_adjusted = request_worker_target(cc, ramp_time)
+
+            # When a schedule row provides both an explicit connection count and
+            # max_rate, the initial ramp to that connection count can skew the
+            # first stats windows. Treat that ramp as a worker adjustment and
+            # delay the next worker-count change by cooldown + ramp_time.
+            #
+            # A max-rate row with connections empty/zero is different: the one
+            # initial worker is only a probe used to measure per-worker
+            # throughput. Do not start the 60s cooldown there, otherwise a
+            # target-only row such as ",3000,0,60" would spend most of its run
+            # waiting before it can extrapolate and add the workers it needs.
+            if row_max_rate and cc > 0 and worker_adjusted:
+                record_worker_adjustment(ramp_time)
 
             end_schedule_time = time.time() + dur if dur else float("inf")
 
