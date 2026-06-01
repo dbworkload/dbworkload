@@ -34,10 +34,33 @@ dbworkload run \
 The runtime is useful when testing Python free-threaded builds such as
 `python3.14t`.
 
+## HTTP Control Endpoint
+
+The GIL-free runtime starts a small HTTP control endpoint by default on port
+`26160`. It listens on IPv4 `0.0.0.0` and IPv6 `[::]`.
+
+Use `adjust_count` to add or remove workers while the run is active:
+
+```bash
+curl "http://localhost:26160/?adjust_count=5"
+curl "http://localhost:26160/?adjust_count=-2"
+```
+
+The endpoint adjusts the target worker count. Connections are added or removed
+through the same internal worker machinery used by schedule and max-rate control,
+so changes are cooperative rather than forcibly interrupting in-flight work.
+
+Use `--control-port` to choose a different port:
+
+```bash
+dbworkload run --runtime gil-free --control-port 8282 ...
+```
+
 ## Current Limitations
 
 The GIL-free runtime supports fixed-concurrency runs, `--max-rate`, and schedule
-rows that set connection count, max rate, ramp time, and duration.
+rows that set connection count, max rate, ramp time, and duration. It also
+supports live connection changes through the HTTP control endpoint.
 
 This feature is not implemented yet:
 

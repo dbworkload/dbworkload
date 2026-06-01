@@ -246,6 +246,14 @@ def run(
         "--runtime",
         help="Runtime implementation to use.",
     ),
+    control_port: int = typer.Option(
+        26160,
+        "--control-port",
+        help=(
+            "HTTP control port for --runtime gil-free. "
+            "Use GET /?adjust_count=<integer> to add/remove connections."
+        ),
+    ),
     log_level: LogLevel = Param.LogLevel,
 ):
     logger.setLevel(log_level.upper())
@@ -340,7 +348,7 @@ def run(
         Runtime.gil_free: gil_free_run_workload,
     }[runtime]
 
-    run_impl(
+    run_args = [
         concurrency,
         workload_path,
         prom_port,
@@ -359,7 +367,12 @@ def run(
         histogram_bins,
         delay_stats,
         log_level.upper(),
-    )
+    ]
+
+    if runtime == Runtime.gil_free:
+        run_args.append(control_port)
+
+    run_impl(*run_args)
 
 
 def get_app_name(driver: str):

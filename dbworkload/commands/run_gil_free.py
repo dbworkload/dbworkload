@@ -7,16 +7,20 @@ the behavior intentionally narrow: fixed concurrency, optional ramp, optional
 duration, optional iterations, periodic stats, and graceful Ctrl+C shutdown.
 """
 
+import json
 import logging
 import math
 import random
 import signal
+import socket
 import sys
 import time
 import traceback
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Event, Lock, Thread
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import tabulate
@@ -43,6 +47,26 @@ MAX_RATE_MASSIVE_OVERSHOOT = 2.0
 MAX_RATE_ADJUSTMENT_COOLDOWN = 60
 MAX_RATE_MAX_CYCLE_PAUSE = 1.0
 MAX_RATE_EWMA_ALPHA = 0.40
+CONTROL_BIND_IPV4 = "0.0.0.0"
+CONTROL_BIND_IPV6 = "::"
+
+
+class IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer variant that binds an IPv6 socket only.
+
+    dbworkload starts one IPv4 listener and one IPv6 listener on the same port.
+    Setting IPV6_V6ONLY avoids the common dual-stack ambiguity where binding
+    [::] may also claim 0.0.0.0 on some platforms.
+    """
+
+    address_family = socket.AF_INET6
+
+    def server_bind(self) -> None:
+        try:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        except OSError:
+            logger.debug("Could not set IPV6_V6ONLY on control server socket.")
+        super().server_bind()
 
 
 @dataclass
@@ -178,12 +202,11 @@ def run(
     histogram_bins: list,
     delay_stats: int,
     log_level: str,
+    control_port: int = 26160,
 ):
     """Run a workload with the experimental GIL-free threaded runtime."""
 
     require_gil_disabled()
-
-    # TODO: implement dbworkload.pipe dynamic resizing for the GIL-free runtime.
 
     logger.setLevel(log_level)
 
@@ -213,8 +236,10 @@ def run(
     # list mutation is protected by workers_lock.
     workers: list[WorkerHandle] = []
     workers_lock = Lock()
+    control_lock = Lock()
     max_rate_state = MaxRateControllerState()
     hard_stop = False
+    control_servers: list[ThreadingHTTPServer] = []
 
     def signal_handler(sig, frame):
         nonlocal hard_stop
@@ -272,6 +297,10 @@ def run(
         logger.debug("Gracefully shutting down GIL-free runtime...")
         state.stop_event.set()
 
+        for server in control_servers:
+            server.shutdown()
+            server.server_close()
+
         # If a schedule ramp is still adding/removing workers, wait for it before
         # joining the actual worker threads.
         if adjustment_thread and adjustment_thread.is_alive():
@@ -328,6 +357,7 @@ def run(
                 ["ramp", ramp],
                 ["args", args],
                 ["delay_stats", delay_stats],
+                ["control_port", control_port],
             ],
             headers=["Parameter", "Value"],
         )
@@ -468,7 +498,7 @@ def run(
                 if ramp_interval:
                     time.sleep(ramp_interval)
 
-    def request_worker_target(target_cc: int, ramp_time: int) -> bool:
+    def request_worker_target_unlocked(target_cc: int, ramp_time: int) -> bool:
         nonlocal adjustment_thread, current_cc
         target_cc = max(0, target_cc)
         cc_change = target_cc - current_cc
@@ -487,6 +517,155 @@ def run(
         adjustment_thread.start()
         current_cc = target_cc
         return True
+
+    def request_worker_target(target_cc: int, ramp_time: int) -> bool:
+        # Schedule, max-rate, and the HTTP control server can all request
+        # worker-count changes. Serialize those decisions so current_cc remains
+        # the single source of truth for the requested target concurrency.
+        with control_lock:
+            return request_worker_target_unlocked(target_cc, ramp_time)
+
+    def request_worker_adjustment(
+        adjust_count: int, ramp_time: int
+    ) -> tuple[bool, int, int]:
+        # HTTP control expresses changes as deltas rather than absolute targets.
+        # Keep the read-modify-write under the same lock so concurrent requests
+        # cannot accidentally calculate from a stale target count.
+        with control_lock:
+            previous_target = current_cc
+            target_cc = max(0, previous_target + adjust_count)
+            changed = request_worker_target_unlocked(target_cc, ramp_time)
+            return changed, previous_target, target_cc
+
+    def requested_worker_count() -> int:
+        with control_lock:
+            return current_cc
+
+    def make_control_handler():
+        class ControlHandler(BaseHTTPRequestHandler):
+            """HTTP control endpoint for live GIL-free concurrency adjustment."""
+
+            server_version = "dbworkload-control"
+            sys_version = ""
+
+            def log_message(self, format: str, *args) -> None:
+                logger.debug("control server: " + format, *args)
+
+            def send_json(self, status: int, payload: dict) -> None:
+                body = json.dumps(payload, sort_keys=True).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self) -> None:
+                parsed = urlparse(self.path)
+                values = parse_qs(parsed.query, keep_blank_values=True)
+
+                if parsed.path != "/" or "adjust_count" not in values:
+                    self.send_json(
+                        400,
+                        {
+                            "error": "expected GET /?adjust_count=<integer>",
+                            "target_connections": requested_worker_count(),
+                            "active_connections": active_worker_count(),
+                        },
+                    )
+                    return
+
+                try:
+                    adjust_count = int(values["adjust_count"][0])
+                except (TypeError, ValueError):
+                    self.send_json(
+                        400,
+                        {
+                            "error": "adjust_count must be a positive or negative integer",
+                            "target_connections": requested_worker_count(),
+                            "active_connections": active_worker_count(),
+                        },
+                    )
+                    return
+
+                changed, previous_target, target_cc = request_worker_adjustment(
+                    adjust_count, 0
+                )
+                if target_cc == previous_target:
+                    self.send_json(
+                        200,
+                        {
+                            "adjust_count": adjust_count,
+                            "active_connections": active_worker_count(),
+                            "changed": False,
+                            "target_connections": previous_target,
+                        },
+                    )
+                    return
+
+                if not changed:
+                    self.send_json(
+                        409,
+                        {
+                            "error": "worker adjustment already in progress",
+                            "active_connections": active_worker_count(),
+                            "target_connections": requested_worker_count(),
+                        },
+                    )
+                    return
+
+                logger.info(
+                    "HTTP control adjusted target connections by %s: %s -> %s",
+                    adjust_count,
+                    previous_target,
+                    target_cc,
+                )
+                self.send_json(
+                    200,
+                    {
+                        "adjust_count": adjust_count,
+                        "active_connections": active_worker_count(),
+                        "changed": True,
+                        "target_connections": target_cc,
+                    },
+                )
+
+        return ControlHandler
+
+    def start_control_server() -> None:
+        if not control_port:
+            logger.info("GIL-free HTTP control server disabled.")
+            return
+
+        handler = make_control_handler()
+        listeners = [
+            (ThreadingHTTPServer, CONTROL_BIND_IPV4),
+            (IPv6ThreadingHTTPServer, CONTROL_BIND_IPV6),
+        ]
+
+        for server_cls, host in listeners:
+            try:
+                server = server_cls((host, control_port), handler)
+            except OSError as e:
+                logger.warning(
+                    "Could not start GIL-free HTTP control server on %s:%s: %s",
+                    host,
+                    control_port,
+                    e,
+                )
+                continue
+
+            server_thread = Thread(
+                target=server.serve_forever,
+                daemon=True,
+                name=f"dbworkload-gil-free-control-{host}",
+            )
+            server_thread.start()
+            control_servers.append(server)
+            logger.info(
+                "GIL-free HTTP control server listening on %s:%s",
+                host,
+                control_port,
+            )
 
     def cooldown_expired() -> bool:
         return time.time() >= max_rate_state.next_worker_adjustment_time
@@ -633,6 +812,7 @@ def run(
 
     current_cc = 0
     adjustment_thread: Thread | None = None
+    start_control_server()
 
     try:
         for i, s in enumerate(schedule):
