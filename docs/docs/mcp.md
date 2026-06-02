@@ -15,6 +15,8 @@ The server runs over `stdio` and exposes:
   options.
 - `generate_data_seed_blueprint`: a tool that creates a JSON-compatible data
   seeding blueprint from raw DDL text.
+- `generate_csv_files`: a tool that writes CSV/TSV seed files from a data
+  seeding blueprint and returns generated file paths.
 
 ## Install
 
@@ -117,6 +119,64 @@ Example response shape:
 ```
 
 The tool does not read or write files. File operations are left to the agent.
+
+## Generating CSV files
+
+`generate_csv_files` accepts a data seed blueprint object, writes CSV/TSV files
+to `output_dir`, and returns generated file paths plus database import
+statements.
+
+```json
+{
+  "seed_blueprint": {
+    "accounts": [
+      {
+        "count": 100,
+        "sort-by": ["id"],
+        "columns": {
+          "id": {
+            "type": "sequence"
+          },
+          "balance": {
+            "type": "float",
+            "args": {
+              "min": 0,
+              "max": 10000,
+              "round": 2
+            }
+          }
+        }
+      }
+    ]
+  },
+  "output_dir": "seed/accounts",
+  "procs": 1,
+  "csv_max_rows": 100000,
+  "delimiter": "\t",
+  "compression": null
+}
+```
+
+Example response shape:
+
+```json
+{
+  "ok": true,
+  "output_dir": "seed/accounts",
+  "file_count": 1,
+  "files": [
+    "seed/accounts/accounts.0_0_0.tsv"
+  ],
+  "import_statements": {
+    "accounts": [
+      "IMPORT INTO accounts ..."
+    ]
+  }
+}
+```
+
+If `output_dir` already exists, the tool renames it to a timestamped backup
+directory before writing the new files.
 
 ## Using `run_workload`
 

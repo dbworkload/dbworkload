@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import copy
+import datetime as dt
+import os
 import subprocess
 import sys
 from importlib import metadata, resources
@@ -10,6 +13,7 @@ from pathlib import Path
 import yaml
 
 from dbworkload.utils import common
+from dbworkload.utils.simplefaker import SimpleFaker
 
 SERVER_NAME = "dbworkload-helper"
 SKILLS_RESOURCE_URI = "dbworkload://docs/skills"
@@ -49,6 +53,7 @@ def server_info_text() -> str:
             "- dry_run_workload",
             "- run_workload",
             "- generate_data_seed_blueprint",
+            "- generate_csv_files",
         ]
     )
 
@@ -69,6 +74,17 @@ def _validate_workload_path(workload_path: str) -> str | None:
 def _append_optional(cmd: list[str], flag: str, value: object | None) -> None:
     if value is not None:
         cmd.extend([flag, str(value)])
+
+
+def _backup_existing_dir(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+
+    backup_path = Path(
+        str(path) + "." + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    )
+    path.rename(backup_path)
+    return backup_path
 
 
 def _build_run_command(
@@ -283,6 +299,95 @@ def create_app():
             "ok": True,
             "blueprint": blueprint,
         }
+
+    @app.tool()
+    def generate_csv_files(
+        seed_blueprint: dict,
+        output_dir: str,
+        procs: int | None = None,
+        csv_max_rows: int = 100000,
+        http_server_hostname: str = "localhost",
+        http_server_port: int = 3000,
+        compression: str | None = None,
+        delimiter: str = "\t",
+    ) -> dict:
+        """Generate CSV or TSV seed files from a data seeding blueprint."""
+        if not isinstance(seed_blueprint, dict) or not seed_blueprint:
+            return {
+                "ok": False,
+                "error": "seed_blueprint must be a non-empty object.",
+            }
+        if csv_max_rows <= 0:
+            return {
+                "ok": False,
+                "error": "csv_max_rows must be greater than 0.",
+            }
+        if procs is not None and procs <= 0:
+            return {
+                "ok": False,
+                "error": "procs must be greater than 0 when provided.",
+            }
+
+        valid_compressions = {None, "bz2", "gzip", "xz", "zip"}
+        if compression not in valid_compressions:
+            return {
+                "ok": False,
+                "error": "compression must be one of: bz2, gzip, xz, zip, or null.",
+            }
+
+        output_path = Path(output_dir).expanduser()
+        if output_path.exists() and not output_path.is_dir():
+            return {
+                "ok": False,
+                "error": f"Output path exists and is not a directory: {output_path}",
+            }
+        if not output_path.parent.exists():
+            return {
+                "ok": False,
+                "error": f"Output parent directory does not exist: {output_path.parent}",
+            }
+
+        backup_path = _backup_existing_dir(output_path)
+        output_path.mkdir()
+
+        worker_count = procs if procs is not None else os.cpu_count() or 1
+        load = copy.deepcopy(seed_blueprint)
+        SimpleFaker(csv_max_rows=csv_max_rows).generate(
+            load,
+            int(worker_count),
+            str(output_path),
+            delimiter,
+            compression,
+        )
+
+        generated_files = sorted(
+            str(path) for path in output_path.iterdir() if path.is_file()
+        )
+        generated_names = [Path(path).name for path in generated_files]
+        import_statements: dict[str, list[str]] = {}
+        for table_name in seed_blueprint:
+            table_files = [
+                name for name in generated_names if name.startswith(table_name)
+            ]
+            import_statements[table_name] = common.get_import_stmts(
+                table_files,
+                table_name,
+                http_server_hostname,
+                http_server_port,
+                delimiter,
+                "",
+            )
+
+        result = {
+            "ok": True,
+            "output_dir": str(output_path),
+            "files": generated_files,
+            "file_count": len(generated_files),
+            "import_statements": import_statements,
+        }
+        if backup_path:
+            result["backup_dir"] = str(backup_path)
+        return result
 
     return app
 

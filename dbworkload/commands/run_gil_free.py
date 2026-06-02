@@ -958,8 +958,7 @@ def worker(
                     # the thread finishes the current transaction/cycle, flushes
                     # local stats, and returns.
                     while (
-                        not state.stop_event.is_set()
-                        and not worker_stop_event.is_set()
+                        not state.stop_event.is_set() and not worker_stop_event.is_set()
                     ):
                         if iterations and c >= iterations:
                             logger.debug("Task completed!")
@@ -1020,10 +1019,7 @@ def worker(
 
             except Exception as e:
                 if is_retryable_driver_error(driver, e):
-                    if (
-                        not state.stop_event.is_set()
-                        and not worker_stop_event.is_set()
-                    ):
+                    if not state.stop_event.is_set() and not worker_stop_event.is_set():
                         log_and_sleep(e)
                     continue
 
