@@ -13,6 +13,8 @@ The server runs over `stdio` and exposes:
   target database URI.
 - `run_workload`: a tool that runs `dbworkload run` with the full set of CLI
   options.
+- `generate_data_seed_blueprint`: a tool that creates a JSON-compatible data
+  seeding blueprint from raw DDL text.
 
 ## Install
 
@@ -76,6 +78,45 @@ Once registered, an AI agent can:
 4. Call `dry_run_workload` with the workload path and database URI.
 5. Use the returned stdout, stderr, and exit code to fix the workload and retry.
 6. Call `run_workload` with the desired run options.
+
+## Generating a Data Seed Blueprint
+
+`generate_data_seed_blueprint` accepts raw DDL text and returns a
+JSON-compatible data seeding blueprint. The agent can then inspect, refine, or
+write that blueprint to YAML/JSON as needed.
+
+```json
+{
+  "ddl": "CREATE TABLE accounts (id BIGINT PRIMARY KEY, balance DECIMAL(15, 2));"
+}
+```
+
+Example response shape:
+
+```json
+{
+  "ok": true,
+  "format": "json",
+  "blueprint": {
+    "accounts": [
+      {
+        "count": 100,
+        "sort-by": [],
+        "columns": {
+          "id": {
+            "type": "integer"
+          },
+          "balance": {
+            "type": "float"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+The tool does not read or write files. File operations are left to the agent.
 
 ## Using `run_workload`
 

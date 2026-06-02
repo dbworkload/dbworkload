@@ -7,6 +7,10 @@ import sys
 from importlib import metadata, resources
 from pathlib import Path
 
+import yaml
+
+from dbworkload.utils import common
+
 SERVER_NAME = "dbworkload-helper"
 SKILLS_RESOURCE_URI = "dbworkload://docs/skills"
 INFO_RESOURCE_URI = "dbworkload://server/info"
@@ -44,17 +48,22 @@ def server_info_text() -> str:
             "- get_authoring_rules",
             "- dry_run_workload",
             "- run_workload",
+            "- generate_data_seed_blueprint",
         ]
     )
 
 
-def _validate_workload_path(workload_path: str) -> str | None:
-    path = Path(workload_path).expanduser()
+def _validate_file_path(file_path: str, label: str) -> str | None:
+    path = Path(file_path).expanduser()
     if not path.exists():
-        return f"Workload file not found: {workload_path}"
+        return f"{label} not found: {file_path}"
     if not path.is_file():
-        return f"Workload path is not a file: {workload_path}"
+        return f"{label} is not a file: {file_path}"
     return None
+
+
+def _validate_workload_path(workload_path: str) -> str | None:
+    return _validate_file_path(workload_path, "Workload file")
 
 
 def _append_optional(cmd: list[str], flag: str, value: object | None) -> None:
@@ -257,6 +266,23 @@ def create_app():
             log_level=log_level,
         )
         return _run_command(cmd, timeout_seconds)
+
+    @app.tool()
+    def generate_data_seed_blueprint(
+        ddl: str,
+    ) -> dict:
+        """Generate a JSON-compatible data seeding blueprint from raw DDL text."""
+        if not ddl.strip():
+            return {
+                "ok": False,
+                "error": "DDL input is empty.",
+            }
+
+        blueprint = yaml.safe_load(common.ddl_to_yaml(ddl)) or {}
+        return {
+            "ok": True,
+            "blueprint": blueprint,
+        }
 
     return app
 
