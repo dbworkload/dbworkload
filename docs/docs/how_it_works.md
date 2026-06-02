@@ -1,6 +1,6 @@
 # How it works
 
-It’s helpful to understand first what `dbworkload` does:
+It's helpful to understand first what `dbworkload` does:
 
 - At runtime, `dbworkload` first imports the class you pass, `bank.py`.
 
@@ -15,6 +15,11 @@ It’s helpful to understand first what `dbworkload` does:
 - `dbworkload` stops once a limit has been reached (iteration/duration), or you Ctrl+C.
 
 ## Concurrency - processes and threads
+
+!!! info "Experimental GIL-free runtime is now available!"
+
+    The GIL-free runtime is experimental. The default `multiprocessing` runtime
+    remains the stable runtime for normal dbworkload runs.
 
 `dbworkload` uses both the `multiprocessing` and `threading` library to achieve high concurrency, that is, opening multiple connections to the DBMS.
 
