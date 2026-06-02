@@ -85,6 +85,7 @@ connections,max_rate,ramp,duration
 
 It also supports rows that use `max_rate`:
 
+```text
 connections,max_rate,ramp,duration
 ,3000,0,5
 4,3000,1,5
