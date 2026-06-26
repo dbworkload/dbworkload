@@ -39,6 +39,7 @@ pyodbc = {version = "*", optional = true}
 mariadb = {version = "*", optional = true}
 google-cloud-spanner = {version = "*", optional = true}
 pinecone = {version = "^8.0.0", optional = true, extras = ["asyncio", "grpc"]}
+foundationdb = {version = "*", optional = true}
 sentence-transformers = { version = "*", optional = true }
 langchain-core = { version = "^1.0.5", optional = true }
 langchain-openai = { version = "^1.0.2", optional = true }
@@ -67,6 +68,7 @@ all =  [
   "cassandra-driver",
   "google-cloud-spanner",
   "pinecone",
+  "foundationdb",
   "sentence-transformers",
   "langchain-core",
   "langchain-openai",
@@ -85,6 +87,7 @@ mongo = ["pymongo"]
 cassandra = ["cassandra-driver"]
 spanner = ["google-cloud-spanner"]
 pinecone = ["pinecone", "sentence-transformers"]
+foundationdb = ["foundationdb"]
 convert = [
   "langchain-core",
   "langchain-openai",

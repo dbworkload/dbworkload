@@ -13,7 +13,7 @@ import time
 import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
-from threading import Thread
+from threading import Lock, Thread
 
 import numpy as np
 import tabulate
@@ -37,8 +37,11 @@ FREQUENCY = 10
 STATS_BUFFER = 8
 
 DBWORKLOAD_PIPE = "dbworkload.pipe"
+FOUNDATIONDB_DEFAULT_API_VERSION = 730
 
 logger = logging.getLogger("dbworkload")
+_foundationdb_api_version = None
+_foundationdb_api_version_lock = Lock()
 
 MAX_RATE_LOWER_BAND = 0.90
 MAX_RATE_UPPER_BAND = 1.10
@@ -1117,6 +1120,33 @@ def get_connection_with_context(driver: str, conn_info: ConnInfo):
             logger.error(e)
         finally:
             pass
+    elif driver == "foundationdb":
+        import fdb
+
+        api_version = int(
+            conn_info.params.get("api_version", FOUNDATIONDB_DEFAULT_API_VERSION)
+        )
+        configure_foundationdb_api_version(fdb, api_version)
+
+        cluster_file = conn_info.params.get("cluster_file")
+        db = fdb.open(cluster_file=cluster_file) if cluster_file else fdb.open()
+        yield db
+
+
+def configure_foundationdb_api_version(fdb, api_version: int):
+    global _foundationdb_api_version
+
+    with _foundationdb_api_version_lock:
+        if _foundationdb_api_version is None:
+            fdb.api_version(api_version)
+            _foundationdb_api_version = api_version
+            return
+
+        if _foundationdb_api_version != api_version:
+            raise ValueError(
+                "FoundationDB API version is process-wide. "
+                f"Already configured {_foundationdb_api_version}, got {api_version}."
+            )
 
 
 def get_connection(driver: str, conn_info: ConnInfo):

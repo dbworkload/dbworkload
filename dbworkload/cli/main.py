@@ -86,7 +86,7 @@ import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pandas as pd
 import typer
@@ -114,6 +114,7 @@ class Driver(str, Enum):
     cassandra = "cassandra"
     spanner = "spanner"
     pinecone = "pinecone"
+    foundationdb = "foundationdb"
 
 
 app = typer.Typer(
@@ -292,6 +293,16 @@ def run(
         elif driver == "mongo":
             conn_info.params["host"] = uri
 
+        elif driver == "foundationdb":
+            query_params = {
+                k: v[-1] for k, v in parse_qs(parse_result.query).items() if v
+            }
+            conn_info.params.update(query_params)
+            if "api_version" in conn_info.params:
+                conn_info.params["api_version"] = int(conn_info.params["api_version"])
+            if parse_result.path and parse_result.path != "/":
+                conn_info.params.setdefault("cluster_file", unquote(parse_result.path))
+
     else:
         # if not, the uri is a string like
         # 'user=user1,password=password1,host=localhost,port=3306,database=bank'
@@ -389,6 +400,8 @@ def get_app_name(driver: str):
     elif driver == "sqlserver":
         return
     elif driver == "cassandra":
+        return
+    elif driver == "foundationdb":
         return
 
 

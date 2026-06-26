@@ -140,3 +140,26 @@ dbworkload run -w workloads/pinecone/MsmarcoPassage.py \
   --uri 'api_key=<pinecone-api-key>,index_name=<index-name>' \
   -i 10
 ```
+
+## foundationdb
+
+Driver documentation: [FoundationDB Python API](https://apple.github.io/foundationdb/api-python.html).
+
+The `foundationdb` package imports as `fdb`. `dbworkload` passes an `fdb.Database`
+object into workload `setup()` and transaction functions.
+
+```bash
+# installation
+pip3 install dbworkload[foundationdb]
+
+# sample use with the default cluster file and API version 730
+dbworkload run -w workloads/foundationdb/kv.py \
+  --driver foundationdb \
+  --uri 'api_version=730' \
+  -i 10
+
+# sample use with an explicit cluster file
+dbworkload run -w workloads/foundationdb/kv.py \
+  --uri 'foundationdb:///etc/foundationdb/fdb.cluster?api_version=730' \
+  -i 10
+```
