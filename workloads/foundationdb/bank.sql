@@ -1,0 +1,45 @@
+-- file: bank.sql
+--
+-- FoundationDB does not use SQL DDL. This file documents the keyspace used by
+-- workloads/foundationdb/bank.py.
+
+-- Keyspace
+-- All keys are encoded with fdb.tuple.pack().
+--
+-- Ref data:
+--   (namespace, "ref_data", acc_no)
+--
+-- Orders:
+--   (namespace, "orders", acc_no, id)
+
+-- ref_data JSON value shape:
+-- {
+--   "acc_no": 123,
+--   "external_ref_id": "<uuid>",
+--   "created_time": "<iso-8601 timestamp>",
+--   "acc_details": "<random string>"
+-- }
+
+-- orders JSON value shape:
+-- {
+--   "acc_no": 123,
+--   "id": "<uuid>",
+--   "status": "Pending" | "Complete",
+--   "amount": 123.45,
+--   "ts": "<iso-8601 timestamp>",
+--   "external_ref_seen": "<uuid>",
+--   "completed_ts": "<iso-8601 timestamp>"
+-- }
+
+-- Workload operation mapping:
+--
+-- txn_read:
+--   GET (namespace, "orders", acc_no, id)
+--
+-- txn_new_order:
+--   SET (namespace, "orders", acc_no, id) = pending order JSON
+--
+-- txn_order_exec:
+--   GET (namespace, "ref_data", acc_no)
+--   GET (namespace, "orders", acc_no, id)
+--   SET (namespace, "orders", acc_no, id) = completed order JSON

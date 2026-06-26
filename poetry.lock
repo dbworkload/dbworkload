@@ -221,7 +221,7 @@ description = "High-level concurrency and networking framework on top of asyncio
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\" or extra == \"mcp\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\" or extra == \"mcp\""
 files = [
     {file = "anyio-4.13.0-py3-none-any.whl", hash = "sha256:08b310f9e24a9594186fd75b4f73f4a4152069e3853f1ed8bfbf58369f4ad708"},
     {file = "anyio-4.13.0.tar.gz", hash = "sha256:334b70e641fd2221c1505b3890c69882fe4a2df910cba14d97019b90b24439dc"},
@@ -241,7 +241,7 @@ description = "Classes Without Boilerplate"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"mcp\" or extra == \"all\" or extra == \"pinecone\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"mcp\""
 files = [
     {file = "attrs-26.1.0-py3-none-any.whl", hash = "sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309"},
     {file = "attrs-26.1.0.tar.gz", hash = "sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32"},
@@ -338,7 +338,7 @@ files = [
     {file = "certifi-2026.5.20-py3-none-any.whl", hash = "sha256:3c52e209ba0a4ad7aebe60436a4ab349c39e1e602e8c134221e546902ad25897"},
     {file = "certifi-2026.5.20.tar.gz", hash = "sha256:69dea482ab64caa7b9f6aba1c6bf48bb6a5448d1c0f1b17ab42ad8c763a5344d"},
 ]
-markers = {main = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\" or extra == \"mcp\" or extra == \"spanner\""}
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"pinecone\" or extra == \"convert\" or extra == \"mcp\""}
 
 [[package]]
 name = "cffi"
@@ -347,7 +347,7 @@ description = "Foreign Function Interface for Python calling C code."
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(extra == \"all\" or extra == \"spanner\" or extra == \"mcp\" or extra == \"oracle\") and platform_python_implementation != \"PyPy\""
+markers = "(extra == \"all\" or extra == \"oracle\" or extra == \"spanner\" or extra == \"mcp\") and platform_python_implementation != \"PyPy\""
 files = [
     {file = "cffi-2.0.0-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:0cf2d91ecc3fcc0625c2c530fe004f82c110405f101548512cce44322fa8ac44"},
     {file = "cffi-2.0.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:f73b96c41e3b2adedc34a7356e64c8eb96e03a3782b535e043a986276ce12a49"},
@@ -576,7 +576,7 @@ files = [
     {file = "charset_normalizer-3.4.7-py3-none-any.whl", hash = "sha256:3dce51d0f5e7951f8bb4900c257dad282f49190fdbebecd4ba99bcc41fef404d"},
     {file = "charset_normalizer-3.4.7.tar.gz", hash = "sha256:ae89db9e5f98a11a4bf50407d4363e7b09b31e55bc117b4f7d80aab97ba009e5"},
 ]
-markers = {main = "extra == \"all\" or extra == \"convert\" or extra == \"spanner\" or extra == \"pinecone\""}
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"pinecone\" or extra == \"convert\""}
 
 [[package]]
 name = "click"
@@ -613,7 +613,7 @@ description = "cryptography is a package which provides cryptographic recipes an
 optional = true
 python-versions = "!=3.9.0,!=3.9.1,>=3.9"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"spanner\" or extra == \"mcp\" or extra == \"oracle\""
+markers = "extra == \"all\" or extra == \"oracle\" or extra == \"spanner\" or extra == \"mcp\""
 files = [
     {file = "cryptography-48.0.0-cp311-abi3-macosx_10_9_universal2.whl", hash = "sha256:0c558d2cdffd8f4bbb30fc7134c74d2ca9a476f830bb053074498fbc86f41ed6"},
     {file = "cryptography-48.0.0-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:f5333311663ea94f75dd408665686aaf426563556bb5283554a3539177e03b8c"},
@@ -1032,7 +1032,7 @@ description = "A platform independent file lock."
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\""
 files = [
     {file = "filelock-3.29.0-py3-none-any.whl", hash = "sha256:96f5f6344709aa1572bbf631c640e4ebeeb519e08da902c39a001882f30ac258"},
     {file = "filelock-3.29.0.tar.gz", hash = "sha256:69974355e960702e789734cb4871f884ea6fe50bd8404051a3530bc07809cf90"},
@@ -1048,6 +1048,18 @@ groups = ["main"]
 markers = "extra == \"all\" or extra == \"convert\""
 files = [
     {file = "flatbuffers-25.12.19-py2.py3-none-any.whl", hash = "sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4"},
+]
+
+[[package]]
+name = "foundationdb"
+version = "7.4.6"
+description = "Python bindings for the FoundationDB Database"
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"all\" or extra == \"foundationdb\""
+files = [
+    {file = "foundationdb-7.4.6.tar.gz", hash = "sha256:a80ccf58106d4379b12825c51b938257dc018d26eeb453b46ae7f06eedf36830"},
 ]
 
 [[package]]
@@ -1198,7 +1210,7 @@ description = "File-system specification"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\""
 files = [
     {file = "fsspec-2026.4.0-py3-none-any.whl", hash = "sha256:11ef7bb35dab8a394fde6e608221d5cf3e8499401c249bebaeaad760a1a8dec2"},
     {file = "fsspec-2026.4.0.tar.gz", hash = "sha256:301d8ac70ae90ef3ad05dcf94d6c3754a097f9b5fe4667d2787aa359ec7df7e4"},
@@ -1657,7 +1669,7 @@ description = "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1"
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "extra == \"mcp\" or extra == \"all\" or extra == \"convert\" or extra == \"pinecone\""
+markers = "extra == \"mcp\" or extra == \"all\" or extra == \"pinecone\" or extra == \"convert\""
 files = [
     {file = "h11-0.16.0-py3-none-any.whl", hash = "sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86"},
     {file = "h11-0.16.0.tar.gz", hash = "sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1"},
@@ -1670,7 +1682,7 @@ description = "Fast transfer of large files with the Hugging Face Hub."
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "(extra == \"all\" or extra == \"convert\" or extra == \"pinecone\") and (platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"AMD64\" or platform_machine == \"arm64\" or platform_machine == \"aarch64\")"
+markers = "(extra == \"all\" or extra == \"pinecone\" or extra == \"convert\") and (platform_machine == \"x86_64\" or platform_machine == \"amd64\" or platform_machine == \"AMD64\" or platform_machine == \"arm64\" or platform_machine == \"aarch64\")"
 files = [
     {file = "hf_xet-1.5.0-cp313-cp313t-macosx_10_12_x86_64.whl", hash = "sha256:7d70fe2ce97b9db73b9c9b9c81fe3693640aec83416a966c446afea54acfae3c"},
     {file = "hf_xet-1.5.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:73a0dae8c71de3b0633a45c73f4a4a5ed09e94b43441d82981a781d4f12baa42"},
@@ -1709,7 +1721,7 @@ description = "A minimal low-level HTTP client."
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\" or extra == \"mcp\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\" or extra == \"mcp\""
 files = [
     {file = "httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55"},
     {file = "httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8"},
@@ -1732,7 +1744,7 @@ description = "The next generation HTTP client."
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\" or extra == \"mcp\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\" or extra == \"mcp\""
 files = [
     {file = "httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad"},
     {file = "httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc"},
@@ -1771,7 +1783,7 @@ description = "Client library to download and publish models, datasets and other
 optional = true
 python-versions = ">=3.10.0"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\""
 files = [
     {file = "huggingface_hub-1.17.0-py3-none-any.whl", hash = "sha256:3b8156d23118e87f6a587648bfbc04f04a12a757ccb4ed298b35c4ae638bf24c"},
     {file = "huggingface_hub-1.17.0.tar.gz", hash = "sha256:fad842b6763ef70ebc3919665b1b9273645203185400a7d6c5eddc2323cc3435"},
@@ -1813,7 +1825,7 @@ files = [
     {file = "idna-3.17-py3-none-any.whl", hash = "sha256:466e48829084efe2548012b855df21540b96f2e20e51bd124c851536556a592c"},
     {file = "idna-3.17.tar.gz", hash = "sha256:5eb0cb53bc467c12eadcf6de83163ad8527cec9416f44b9b61b19caedad2b87f"},
 ]
-markers = {main = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\" or extra == \"mcp\" or extra == \"spanner\""}
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"pinecone\" or extra == \"convert\" or extra == \"mcp\""}
 
 [package.extras]
 all = ["mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2)"]
@@ -2649,7 +2661,7 @@ description = "Python extension for MurmurHash (MurmurHash3), a set of fast and 
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"spanner\""
+markers = "extra == \"all\" or extra == \"spanner\" or extra == \"convert\""
 files = [
     {file = "mmh3-5.2.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:5d87a3584093e1a89987e3d36d82c98d9621b2cb944e22a420aa1401e096758f"},
     {file = "mmh3-5.2.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:30e4d2084df019880d55f6f7bea35328d9b464ebee090baa372c096dc77556fb"},
@@ -4544,7 +4556,7 @@ description = ""
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"spanner\" or extra == \"pinecone\" or extra == \"convert\""
+markers = "extra == \"all\" or extra == \"convert\" or extra == \"spanner\" or extra == \"pinecone\""
 files = [
     {file = "protobuf-6.33.6-cp310-abi3-win32.whl", hash = "sha256:7d29d9b65f8afef196f8334e80d6bc1d5d4adedb449971fefd3723824e6e77d3"},
     {file = "protobuf-6.33.6-cp310-abi3-win_amd64.whl", hash = "sha256:0cd27b587afca21b7cfa59a74dcbd48a50f0a6400cfb59391340ad729d91d326"},
@@ -4806,7 +4818,7 @@ description = "C parser in Python"
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "(extra == \"all\" or extra == \"spanner\" or extra == \"mcp\" or extra == \"oracle\") and platform_python_implementation != \"PyPy\" and implementation_name != \"PyPy\""
+markers = "(extra == \"all\" or extra == \"oracle\" or extra == \"spanner\" or extra == \"mcp\") and platform_python_implementation != \"PyPy\" and implementation_name != \"PyPy\""
 files = [
     {file = "pycparser-3.0-py3-none-any.whl", hash = "sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992"},
     {file = "pycparser-3.0.tar.gz", hash = "sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29"},
@@ -5252,9 +5264,10 @@ cli = ["click (>=5.0)"]
 name = "python-multipart"
 version = "0.0.31"
 description = "A streaming multipart parser for Python"
-optional = false
+optional = true
 python-versions = ">=3.10"
 groups = ["main"]
+markers = "extra == \"mcp\""
 files = [
     {file = "python_multipart-0.0.31-py3-none-any.whl", hash = "sha256:8408153d68a9773291fc1da39a8b85a50044bddbabd2dd72e9229776b7b15e28"},
     {file = "python_multipart-0.0.31.tar.gz", hash = "sha256:fc631183bb13e56db3158a4909908dfb2e23565286744e798241e63750e5d680"},
@@ -5414,7 +5427,7 @@ description = "Alternative regular expression module, to replace re."
 optional = true
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\""
 files = [
     {file = "regex-2026.5.9-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:a9e1328e17c84c1a5d22ec9f785ecef4a967fab9a42b6a8dc3bcbebd0a0c9e44"},
     {file = "regex-2026.5.9-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:bfe1ce50cbfb569d74e1e4337da6468961f31dbea55fd85aa5de59c0947a805a"},
@@ -5543,7 +5556,7 @@ files = [
     {file = "requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0"},
     {file = "requests-2.34.2.tar.gz", hash = "sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed"},
 ]
-markers = {main = "extra == \"all\" or extra == \"convert\" or extra == \"spanner\" or extra == \"pinecone\""}
+markers = {main = "extra == \"all\" or extra == \"spanner\" or extra == \"pinecone\" or extra == \"convert\""}
 
 [package.dependencies]
 certifi = ">=2023.5.7"
@@ -6242,7 +6255,7 @@ description = ""
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\""
 files = [
     {file = "tokenizers-0.22.2-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:544dd704ae7238755d790de45ba8da072e9af3eea688f698b137915ae959281c"},
     {file = "tokenizers-0.22.2-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:1e418a55456beedca4621dbab65a318981467a2b188e982a23e117f115ce5001"},
@@ -6409,7 +6422,7 @@ description = "Fast, Extensible Progress Meter"
 optional = true
 python-versions = ">=3.7"
 groups = ["main"]
-markers = "extra == \"all\" or extra == \"convert\" or extra == \"pinecone\""
+markers = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\""
 files = [
     {file = "tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf"},
     {file = "tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb"},
@@ -6560,7 +6573,7 @@ description = "Backported and Experimental Type Hints for Python 3.9+"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "(extra == \"all\" or extra == \"pinecone\" or extra == \"spanner\" or extra == \"convert\" or extra == \"mcp\" or extra == \"oracle\" or python_version < \"3.13\") and (extra == \"all\" or extra == \"postgres\" or extra == \"pinecone\" or extra == \"mcp\" or extra == \"convert\" or extra == \"spanner\" or extra == \"oracle\")"
+markers = "(extra == \"all\" or extra == \"pinecone\" or extra == \"spanner\" or extra == \"oracle\" or extra == \"convert\" or extra == \"mcp\" or python_version < \"3.13\") and (extra == \"all\" or extra == \"postgres\" or extra == \"oracle\" or extra == \"spanner\" or extra == \"pinecone\" or extra == \"convert\" or extra == \"mcp\")"
 files = [
     {file = "typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"},
     {file = "typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466"},
@@ -6606,7 +6619,7 @@ files = [
     {file = "urllib3-2.7.0-py3-none-any.whl", hash = "sha256:9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897"},
     {file = "urllib3-2.7.0.tar.gz", hash = "sha256:231e0ec3b63ceb14667c67be60f2f2c40a518cb38b03af60abc813da26505f4c"},
 ]
-markers = {main = "extra == \"all\" or extra == \"pinecone\" or extra == \"convert\" or extra == \"spanner\""}
+markers = {main = "extra == \"all\" or extra == \"pinecone\" or extra == \"spanner\" or extra == \"convert\""}
 
 [package.extras]
 brotli = ["brotli (>=1.2.0) ; platform_python_implementation == \"CPython\"", "brotlicffi (>=1.2.0.0) ; platform_python_implementation != \"CPython\""]
@@ -7418,9 +7431,10 @@ files = [
 cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and python_version < \"3.14\"", "cffi (>=2.0.0b0) ; platform_python_implementation != \"PyPy\" and python_version >= \"3.14\""]
 
 [extras]
-all = ["cassandra-driver", "fastembed", "google-cloud-spanner", "langchain-core", "langchain-ollama", "langchain-openai", "langgraph", "mariadb", "mysql-connector-python", "openai", "oracledb", "pgvector", "pinecone", "psycopg", "psycopg-binary", "pymongo", "pyodbc", "sentence-transformers"]
+all = ["cassandra-driver", "fastembed", "foundationdb", "google-cloud-spanner", "langchain-core", "langchain-ollama", "langchain-openai", "langgraph", "mariadb", "mysql-connector-python", "openai", "oracledb", "pgvector", "pinecone", "psycopg", "psycopg-binary", "pymongo", "pyodbc", "sentence-transformers"]
 cassandra = ["cassandra-driver"]
 convert = ["fastembed", "langchain-core", "langchain-ollama", "langchain-openai", "langgraph", "openai", "pgvector"]
+foundationdb = ["foundationdb"]
 mariadb = ["mariadb"]
 mcp = ["mcp"]
 mongo = ["pymongo"]
@@ -7434,4 +7448,4 @@ spanner = ["google-cloud-spanner"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4"
-content-hash = "45f98848a4348581b7c946f21b5a4a34c48249218493809b910a65b0374bd98f"
+content-hash = "70a098378daf00e287748b645c1c7e22ea58a94150773db8954b7ba7e4d73d37"
