@@ -964,7 +964,11 @@ def worker(
 
                     if pause:
                         sleep_until = time.time() + pause
-                        while time.time() < sleep_until:
+                        while True:
+                            remaining = sleep_until - time.time()
+                            if remaining <= 0:
+                                break
+
                             try:
                                 from_proc_q.get(block=False)
                                 logger.debug("Poison pill received, terminating...")
@@ -973,7 +977,7 @@ def worker(
                             except queue.Empty:
                                 pass
 
-                            time.sleep(min(0.05, sleep_until - time.time()))
+                            time.sleep(min(0.05, remaining))
 
         except Exception as e:
             if driver == "postgres":

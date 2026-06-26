@@ -1011,11 +1011,14 @@ def worker(
                         if cycle_pause:
                             sleep_until = time.time() + cycle_pause
                             while (
-                                time.time() < sleep_until
-                                and not state.stop_event.is_set()
+                                not state.stop_event.is_set()
                                 and not worker_stop_event.is_set()
                             ):
-                                time.sleep(min(0.05, sleep_until - time.time()))
+                                remaining = sleep_until - time.time()
+                                if remaining <= 0:
+                                    break
+
+                                time.sleep(min(0.05, remaining))
 
             except Exception as e:
                 if is_retryable_driver_error(driver, e):
