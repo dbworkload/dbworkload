@@ -266,6 +266,7 @@ def get_driver_from_scheme(scheme: str):
     return {
         "postgres": "postgres",
         "postgresql": "postgres",
+        "dsql": "dsql",
         "mongo": "mongo",
         "mongodb": "mongo",
         "maria": "maria",

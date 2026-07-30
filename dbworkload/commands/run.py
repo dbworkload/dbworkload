@@ -988,6 +988,19 @@ def worker(
                     return
                 log_and_sleep(e)
 
+            elif driver == "dsql":
+                import psycopg
+
+                if isinstance(e, psycopg.errors.UndefinedTable):
+                    to_main_q.put(e)
+                    return
+                if isinstance(e, (psycopg.Error, psycopg.Warning)):
+                    log_and_sleep(e)
+                else:
+                    logger.error(type(e), stack_info=True)
+                    to_main_q.put(e)
+                    return
+                
             elif driver == "mysql":
                 import mysql.connector.errorcode
 
@@ -1093,7 +1106,7 @@ def run_transaction(conn, op, driver: str, max_retries=3):
             # from the retry loop.
             return retry - 1
         except Exception as e:
-            if driver == "postgres":
+            if driver in ("postgres", "dsql"):
                 import psycopg.errors
 
                 if isinstance(e, psycopg.errors.SerializationFailure):
@@ -1158,6 +1171,12 @@ def get_connection(driver: str, conn_info: ConnInfo):
         import psycopg
 
         return psycopg.connect(**conn_info.params, connect_timeout=5)
+
+    elif driver == "dsql":
+        import aurora_dsql_psycopg as dsql
+
+        return dsql.connect(**conn_info.params, connect_timeout=5)
+    
     elif driver == "mysql":
         import mysql.connector
 

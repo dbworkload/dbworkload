@@ -34,6 +34,7 @@ mysql-connector-python = {version = "*", optional = true}
 oracledb = {version = "*", optional = true}
 psycopg = {version = "*", optional = true}
 psycopg-binary = {version = "*", optional = true}
+aurora-dsql-python-connector = {version = "*", optional = true}
 pymongo = {version = "*", optional = true}
 pyodbc = {version = "*", optional = true}
 mariadb = {version = "*", optional = true}
@@ -79,6 +80,7 @@ all =  [
   "pgvector"
 ]
 postgres = ["psycopg", "psycopg-binary"]
+dsql = ["aurora-dsql-python-connector", "psycopg", "psycopg-binary"]
 mysql = ["mysql-connector-python"]
 mariadb = ["mariadb"]
 oracle = ["oracledb"]
