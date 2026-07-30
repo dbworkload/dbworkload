@@ -77,7 +77,7 @@ def util_csv(
         print(f"=== IMPORT STATEMENTS FOR TABLE {table_name} ===\n")
 
         for s in common.get_import_stmts(
-            [x for x in csv_files if x.startswith(table_name)],
+            [x for x in csv_files if x.startswith(table_name + ".")],
             table_name,
             http_server_hostname,
             http_server_port,

@@ -367,7 +367,9 @@ def create_app():
         import_statements: dict[str, list[str]] = {}
         for table_name in seed_blueprint:
             table_files = [
-                name for name in generated_names if name.startswith(table_name)
+                name
+                for name in generated_names
+                if name.startswith(table_name + ".")
             ]
             import_statements[table_name] = common.get_import_stmts(
                 table_files,
